@@ -3,39 +3,50 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"math"
 	"math/rand"
-	"sort"
+	"regexp"
 	"strings"
-	"sync"
 	"time"
+
+	tmx "github.com/szenzaro/go-tmx"
 )
 
 func main() {
 
 	wordsPath := flag.String("w", "", "path to the xlsx file containing all the words")
-	// tsPath := flag.String("ts", "", "path to the tmx file containing the alignment for the words in the DB")
+	tsPath := flag.String("ts", "", "path to the tmx file containing the alignment for the words in the DB")
 	flag.Parse()
 
 	// TODO: check flags
-	fmt.Println(wordsPath)
-	gs := []goldStandard{}
+	wordsDB := loadDB(*wordsPath)
+	gs := loadGoldStandard(*tsPath, &wordsDB)
 	splitIndex := 3 * len(gs) / 10 // about 30%
 	trainingSet := gs[:splitIndex]
 	testSet := gs[splitIndex:]
 
-	ff := []func(edit) float64{}
+	ff := []feature{
+		editType,
+	}
 	var ar aligner // TODO: put greek aligner
 	alignAlg := func(p problem, w []float64) *alignment {
-		return newFromWordBags(p.from, p.to).align(ar, w)
+		a, err := newFromWordBags(p.from, p.to).align(ar, ff, w)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		return a
 	}
 
 	w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg)
 
 	for _, p := range testSet {
 		a := newFromWordBags(p.p.from, p.p.to)
-		res := a.align(ar, w)
-
+		res, err := a.align(ar, ff, w)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		fmt.Println(res)
 	}
 
 	// wordsDB := loadDB(*wordsPath)
@@ -53,8 +64,8 @@ func main() {
 	// }
 }
 
-func scoreAccuracy(a, b *alignment, w []float64) float64 {
-	sa, sb := a.Score(w), b.Score(w)
+func scoreAccuracy(a, b *alignment, fs []feature, w []float64) float64 {
+	sa, sb := a.Score(fs, w), b.Score(fs, w)
 	return 1.0 - math.Abs(sa-sb)/math.Max(sa, sb)
 }
 
@@ -63,17 +74,101 @@ func editsAccuracy(a, b *alignment, w []float64) float64 {
 }
 
 type word struct {
-	text string
+	ID     string
+	text   string
+	lemma  string
+	tag    string
+	verse  int
+	chant  int
+	source string
 }
 type db = map[string]word
 
 func loadDB(path string) db {
 	data := db{}
 	// TODO
+
 	return data
 }
 
-type feature func(sw, tw []word) float64
+func (w *word) getProblemID() string {
+	return fmt.Sprintf("%s.%d.%d", w.source, w.chant, w.verse)
+}
+
+func loadGoldStandard(path string, words *db) []goldStandard {
+
+	problems := getProblems(*words)
+
+	// TODO
+	data, err := tmx.Read(path)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	r, err := regexp.Compile(`(.*\{(?P<first>\d+)\-\d+\}).*`)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	tus := data.Body.Tu
+	for _, tu := range tus {
+		e := getEditFromTu(tu, r)
+		problems[e.getProblemID()].a.add(e)
+	}
+
+	//to array
+	gs := make([]goldStandard, len(problems))
+	for _, v := range problems {
+		gs = append(gs, v)
+	}
+	return gs
+}
+
+func getProblems(words db) map[string]goldStandard {
+	// TODO
+	return map[string]goldStandard{}
+}
+
+func equal(v, w word) bool {
+	return v.text == w.text
+}
+
+func getWordsFromTuv(tub tmx.Tuv, r *regexp.Regexp) []word {
+	return []word{} // TODO
+}
+
+func getEditFromTu(tu tmx.Tu, r *regexp.Regexp) edit {
+	from := getWordsFromTuv(tu.Tuv[0], r)
+	to := getWordsFromTuv(tu.Tuv[1], r)
+
+	switch l := len(from); {
+	case l == 1 && len(to) == 0:
+		return &del{w: from[0]}
+	case l == 0 && len(to) == 1:
+		return &ins{w: to[0]}
+	case l == 1 && len(to) == 1 && equal(from[0], to[0]):
+		return &eq{from: from[0], to: to[0]}
+	default:
+		return &sub{from: from, to: to}
+	}
+}
+
+type feature func(edit) float64 // func(sw, tw []word) float64
+
+func editType(e edit) float64 {
+	switch e.(type) {
+	case *ins:
+		return 1.0
+	case *del:
+		return 2.0
+	case *eq:
+		return 10.0
+	case *sub:
+		return 1.0
+	default:
+		return 0.0
+	}
+}
 
 // subType,
 // relativePosition,
@@ -84,84 +179,73 @@ type feature func(sw, tw []word) float64
 
 type edit interface {
 	fmt.Stringer
-	AddFeatures(fs ...feature)
-	Features() []feature
-	Score([]float64) float64
-}
-
-type wFeature struct {
-	w float64
-	f feature
-}
-
-type withFeatures struct {
-	features []wFeature
-}
-
-func (wf *withFeatures) AddFeatures(fs ...feature) {
-	for _, f := range fs {
-		wf.features = append(wf.features, wFeature{0, f})
-	}
-}
-
-func (wf *withFeatures) Features() []feature {
-	fs := make([]feature, len(wf.features))
-	for i, f := range wf.features {
-		fs[i] = f.f
-	}
-	return fs
+	Score(fs []feature, ws []float64) float64
+	getProblemID() string
 }
 
 type ins struct {
-	withFeatures
 	w word
 }
 
-func (e *ins) Score(w []float64) float64 {
+func (e *ins) getProblemID() string {
+	return e.w.getProblemID()
+}
+
+func (e *del) getProblemID() string {
+	return e.w.getProblemID()
+}
+
+func (e *eq) getProblemID() string {
+	return e.from.getProblemID()
+}
+
+func (e *sub) getProblemID() string {
+	return e.from[0].getProblemID()
+}
+
+func (e *ins) Score(fs []feature, ws []float64) float64 {
 	score := 0.0
-	for i, f := range e.features {
-		score += w[i] * f.f([]word{}, []word{e.w})
+	for i, f := range fs {
+		// score += w[i] * f([]word{}, []word{e.w})
+		score += ws[i] * f(e)
 	}
 	return score
 }
 
 type del struct {
-	withFeatures
 	w word
 }
 
-func (e *del) Score(w []float64) float64 {
+func (e *del) Score(fs []feature, ws []float64) float64 {
 	score := 0.0
-	for i, f := range e.features {
-		score += w[i] * f.f([]word{e.w}, []word{})
+	for i, f := range fs {
+		score += ws[i] * f(e)
 	}
 	return score
 }
 
 type eq struct {
-	withFeatures
 	from word
 	to   word
 }
 
-func (e *eq) Score(w []float64) float64 {
+func (e *eq) Score(fs []feature, ws []float64) float64 {
 	score := 0.0
-	for i, f := range e.features {
-		score += w[i] * f.f([]word{e.from}, []word{e.to})
+	for i, f := range fs {
+		score += ws[i] * f(e)
 	}
 	return score
 }
 
 type sub struct {
-	withFeatures
 	from []word
 	to   []word
 }
 
-func (e *sub) Score(w []float64) float64 {
+func (e *sub) Score(fs []feature, ws []float64) float64 {
 	score := 0.0
-	for i, f := range e.features {
-		score += w[i] * f.f(e.from, e.to)
+	for i, f := range fs {
+		score += ws[i] * f(e)
 	}
 	return score
 }
@@ -193,10 +277,10 @@ type alignment struct {
 	editMap map[edit]edit
 }
 
-func (a *alignment) Score(w []float64) float64 {
+func (a *alignment) Score(fs []feature, ws []float64) float64 {
 	score := 0.0
 	for _, e := range a.editMap {
-		score += e.Score(w)
+		score += e.Score(fs, ws)
 	}
 	return score
 }
@@ -256,62 +340,44 @@ func (a *alignment) String() string {
 	return sb.String()
 }
 
-func (a *alignment) align(ar aligner, w []float64) *alignment { // TODO: check code or rewrite
+func (a *alignment) align(ar aligner, fs []feature, ws []float64) (*alignment, error) {
+	if len(fs) != len(ws) {
+		return nil, fmt.Errorf("features and weights len mismatch")
+	}
 	F := ar.next(a)
 	if len(F) == 0 {
-		return a
+		return a, nil
 	}
-	scoredAlignment := map[string]float64{}
+	maxScore := math.Inf(-1)
+	var maxAlign alignment
 
-	minScore := math.Inf(0)
-	var minAlign alignment
-
-	scored := make([]scoredAligment, len(F))
-
-	scoredCh := make(chan scoredAligment, len(F))
-	var wg sync.WaitGroup
 	// start := time.Now()
-	for _, x := range F { // go routine
-		wg.Add(1)
-		go func(al alignment) {
-			scoredCh <- scoredAligment{a: al, v: al.Score()}
-			wg.Done()
-		}(x)
-	}
-	wg.Wait()
-	close(scoredCh)
-	i := 0
-	for a := range scoredCh {
-		k := fmt.Sprint(a.a.editMap)
-		_, present := scoredAlignment[k]
-		if !present {
-			scoredAlignment[k] = a.v
+	for _, a := range F { // go routine
+		score := a.Score(fs, ws)
+		if score > maxScore {
+			maxScore = score
+			maxAlign = a
 		}
-		if scoredAlignment[k] < minScore {
-			minScore, minAlign = scoredAlignment[k], a.a
-		}
-		scored[i] = a
-		i++
 	}
-
-	sort.SliceStable(scored, func(x, y int) bool { return scored[x].v < scored[y].v })
 	// elapsed := time.Since(start)
 	// fmt.Println("scored all in ", elapsed)
 	// for _, v := range scored[:min(len(scored), 10)] {
 	// 	fmt.Println(v.a, " - ", v.v)
 	// }
-
-	return minAlign.align(ar)
+	return maxAlign.align(ar, fs, ws)
 }
 
 func learn(
 	trainingProblems []goldStandard,
 	N, N0 int,
 	R0, r float64,
-	featureFunctions []func(edit) float64,
+	featureFunctions []feature,
 	alignAlg func(problem, []float64) *alignment,
 ) []float64 {
 	w := make(Vector, len(featureFunctions))
+	for i := range w {
+		w[i] = 1.0
+	}
 	epochs := []Vector{}
 	n := len(trainingProblems)
 	R := R0
@@ -330,16 +396,15 @@ func learn(
 	return Avg(epochs[N0:])
 }
 
+type wordsBag = map[string]word
 type problem struct {
 	from, to wordsBag
 }
-
 type goldStandard struct {
-	p problem
-	a alignment
+	ID string
+	p  problem
+	a  *alignment
 }
-
-type wordsBag = map[string]word
 
 func shuffle(vals []goldStandard) {
 	r := rand.New(rand.NewSource(time.Now().Unix()))
@@ -349,7 +414,7 @@ func shuffle(vals []goldStandard) {
 	}
 }
 
-func phi(a alignment, fs []func(edit) float64) Vector {
+func phi(a *alignment, fs []feature) Vector {
 	v := make(Vector, len(fs))
 	for i, f := range fs {
 		featureValue := 0.0
