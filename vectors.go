@@ -4,9 +4,24 @@ import "math"
 
 type Vector []float64
 
+func Equals(v, w Vector) bool {
+	if len(v) != len(w) {
+		return false
+	}
+	for i := range v {
+		if v[i] != w[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func (w *Vector) Normalize(normFunc func([]float64) float64) Vector {
 	v := make(Vector, len(*w))
 	norm := normFunc(*w)
+	if norm == 0.0 {
+		norm = 1.0
+	}
 	for i, xi := range *w {
 		v[i] = xi / norm
 	}
@@ -23,7 +38,7 @@ func Norm2(w []float64) float64 {
 
 func Avg(arr []Vector) Vector {
 	if len(arr) == 0 {
-		return Vector{0.0}
+		return Vector{}
 	}
 	res := make(Vector, len(arr[0]))
 	for i := 0; i < len(arr[0]); i++ {
@@ -38,7 +53,7 @@ func Avg(arr []Vector) Vector {
 func vectOp(v1, v2 []float64, op func(float64, float64) float64) []float64 {
 	v := make([]float64, len(v1))
 	for i := 0; i < len(v1); i++ {
-		v[i] = op(v1[i], v1[i])
+		v[i] = op(v1[i], v2[i])
 	}
 	return v
 }

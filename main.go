@@ -6,14 +6,17 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tmx "github.com/szenzaro/go-tmx"
 	"github.com/tealeg/xlsx"
+	"github.com/texttheater/golang-levenshtein/levenshtein"
 )
 
 func main() {
@@ -30,14 +33,16 @@ func main() {
 	}
 	gs := loadGoldStandard(*tsPath, wordsDB)
 
-	splitIndex := 3 * len(gs) / 10 // about 30%
+	// splitIndex := 3 * len(gs) / 10 // about 30%
+	splitIndex := 1 * len(gs) / 10 // about 10%
 	trainingSet := gs[:splitIndex]
 	testSet := gs[splitIndex:]
 
 	ff := []feature{
 		editType,
+		lexicalSimilarity,
 	}
-	var ar aligner // TODO: put greek aligner
+	ar := NewGreekAligner(Scholie{}) // TODO load scholie
 	alignAlg := func(p problem, w []float64) *alignment {
 		a, err := newFromWordBags(p.from, p.to).align(ar, ff, w)
 		if err != nil {
@@ -257,6 +262,92 @@ func editType(e edit) float64 {
 	}
 }
 
+func lexicalSimilarity(e edit) float64 {
+	from := []word{}
+	to := []word{}
+	switch e.(type) {
+	case *ins:
+		to = []word{e.(*ins).w}
+	case *del:
+		from = []word{e.(*del).w}
+	case *eq:
+		from = []word{e.(*eq).from}
+		to = []word{e.(*eq).to}
+	case *sub:
+		from = e.(*sub).from
+		to = e.(*sub).to
+	}
+	source, target := sumWords(from), sumWords(to)
+	v := normalizedDist([]string{source.text}, []string{target.text})
+	return float64(v)
+}
+
+func subDist(source, target []string) float64 {
+	min := int(math.Min(float64(len(source)), float64(len(target))))
+	max := int(math.Max(float64(len(source)), float64(len(target))))
+	sumSubs := 0.0
+	for i := 0; i < min; i++ {
+		sumSubs += levenshteinDistance(source[i], target[i])
+	}
+
+	for i := min; i < max; i++ {
+		if len(source) > i {
+			sumSubs += float64(utf8.RuneCountInString(source[i]))
+		}
+		if len(target) > i {
+			sumSubs += float64(utf8.RuneCountInString(target[i]))
+		}
+	}
+	return sumSubs
+}
+
+func normalizedDist(source, target []string) float64 {
+	sumSubs := subDist(source, target)
+	var concatSource, concatTarget string
+	for _, v := range source {
+		concatSource += v
+	}
+	for _, v := range target {
+		concatTarget += v
+	}
+	return sumSubs + levenshteinDistance(concatSource, concatTarget)
+}
+
+func sumWords(x []word) word {
+	var text strings.Builder
+	var lemma strings.Builder
+	var tag strings.Builder
+
+	for i := 0; i < len(x); i++ {
+		w := x[i]
+		text.WriteString(w.text)
+		lemma.WriteString(w.lemma)
+		tag.WriteString(w.tag)
+	}
+
+	if len(x) == 0 {
+		return word{}
+	}
+
+	return word{
+		ID:     x[0].ID,
+		chant:  x[0].chant,
+		verse:  x[0].verse,
+		source: x[0].source,
+		text:   text.String(),
+		lemma:  lemma.String(),
+		tag:    tag.String(),
+	}
+}
+
+func levenshteinDistance(s, t string) float64 {
+	return float64(levenshtein.DistanceForStrings(
+		[]rune(s),
+		[]rune(t),
+		levenshtein.DefaultOptions,
+	))
+}
+
 // subType,
 // relativePosition,
 // textDistance,
@@ -473,17 +564,24 @@ func learn(
 	epochs := []Vector{}
 	n := len(trainingProblems)
 	R := R0
+	start := time.Now()
 	for i := 0; i < N; i++ {
+		start := time.Now()
 		R = r * R
 		shuffle(trainingProblems)
 		for j := 0; j < n; j++ {
+			fmt.Println(j, "/", n, " -- of ", i, "/", N)
 			Ej := alignAlg(trainingProblems[j].p, w)
 			diff := Diff(phi(trainingProblems[j].a, featureFunctions), phi(Ej, featureFunctions)) // phi(Ej) - phi(Êj)
 			w = Sum(w, diff.Scale(R))
 		}
 		w = w.Normalize(Norm2)
-		epochs[i] = w
+		epochs = append(epochs, w)
+		elapsed := time.Since(start)
+		fmt.Println("lap ", i, " finished in ", elapsed)
 	}
+	elapsed := time.Since(start)
+	fmt.Println("trained in  ", elapsed)
 
 	return Avg(epochs[N0:])
 }
@@ -544,4 +642,30 @@ func phi(a *alignment, fs []feature) Vector {
 		v[i] = featureValue
 	}
 	return v
+}
+
+func (a *alignment) filter(t reflect.Type) []edit {
+	edits := []edit{}
+	for _, v := range a.editMap {
+		if reflect.TypeOf(v) == t {
+			edits = append(edits, v)
+		}
+	}
+	return edits
+}
+
+func (a alignment) clone() alignment {
+	newA := alignment{
+		editMap: map[edit]edit{},
+	}
+	for k, v := range a.editMap {
+		newA.editMap[k] = v
+	}
+	return newA
+}
+
+func (a *alignment) remove(es ...edit) {
+	for _, v := range es {
+		delete(a.editMap, v)
+	}
 }
