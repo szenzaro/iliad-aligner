@@ -30,14 +30,6 @@ func main() {
 	}
 	gs := loadGoldStandard(*tsPath, wordsDB)
 
-	for _, v := range gs[:5] {
-		fmt.Println(v.p)
-		fmt.Println(v.a)
-		fmt.Println()
-	}
-
-	return
-
 	splitIndex := 3 * len(gs) / 10 // about 30%
 	trainingSet := gs[:splitIndex]
 	testSet := gs[splitIndex:]
@@ -170,12 +162,11 @@ func loadGoldStandard(path string, words db) []goldStandard {
 	}
 
 	//to array
-	gs := make([]goldStandard, len(problems))
+	gs := []goldStandard{}
 	for k := range problems {
 		gs = append(gs, problems[k])
 	}
-	as := gs[:len(gs)-10]
-	return as
+	return gs
 }
 
 func canGetEdit(from, to []word) bool {
@@ -191,6 +182,9 @@ func getProblems(words db) map[string]goldStandard {
 	for _, w := range words {
 		problemID := fmt.Sprintf("%s.%s", w.chant, w.verse)
 		if _, ok := data[problemID]; !ok {
+			if problemID == "" || w.source == "" {
+				panic("AA")
+			}
 			data[problemID] = goldStandard{
 				ID: problemID,
 				p:  problem{from: map[string]word{}, to: map[string]word{}},
@@ -349,19 +343,19 @@ func (e *sub) Score(fs []feature, ws []float64) float64 {
 }
 
 func (e *ins) String() string {
-	return fmt.Sprintf("Ins( %s )", e.w.text)
+	return fmt.Sprintf("Ins(%s)", e.w.text)
 }
 func (e *del) String() string {
-	return fmt.Sprintf("Del( %s )", e.w.text)
+	return fmt.Sprintf("Del(%s)", e.w.text)
 }
 func (e *eq) String() string {
-	return fmt.Sprintf("Eq( %s , %s )", e.from.text, e.to.text)
+	return fmt.Sprintf("Eq(%s , %s)", e.from.text, e.to.text)
 }
 func (e *sub) String() string {
 	var sb strings.Builder
 	sb.WriteString("Sub(")
 	for _, w := range e.from {
-		sb.WriteString(fmt.Sprintf(" %s", w.text))
+		sb.WriteString(fmt.Sprintf("%s ", w.text))
 	}
 	sb.WriteString(",")
 	for _, w := range e.to {
