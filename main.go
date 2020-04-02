@@ -7,10 +7,13 @@ import (
 	"math"
 	"math/rand"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	tmx "github.com/szenzaro/go-tmx"
+	"github.com/tealeg/xlsx"
 )
 
 func main() {
@@ -19,9 +22,22 @@ func main() {
 	tsPath := flag.String("ts", "", "path to the tmx file containing the alignment for the words in the DB")
 	flag.Parse()
 
-	// TODO: check flags
-	wordsDB := loadDB(*wordsPath)
-	gs := loadGoldStandard(*tsPath, &wordsDB)
+	// TODO: check flags for errors or empty strings
+
+	wordsDB, err := loadDB(*wordsPath)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	gs := loadGoldStandard(*tsPath, wordsDB)
+
+	for _, v := range gs[:5] {
+		fmt.Println(v.p)
+		fmt.Println(v.a)
+		fmt.Println()
+	}
+
+	return
+
 	splitIndex := 3 * len(gs) / 10 // about 30%
 	trainingSet := gs[:splitIndex]
 	testSet := gs[splitIndex:]
@@ -78,28 +94,61 @@ type word struct {
 	text   string
 	lemma  string
 	tag    string
-	verse  int
-	chant  int
+	verse  string
+	chant  string
 	source string
 }
 type db = map[string]word
 
-func loadDB(path string) db {
+func loadDB(path string) (db, error) {
 	data := db{}
-	// TODO
+	xlFile, err := xlsx.OpenFile(path)
+	if err != nil {
+		return nil, err
+	}
+	for _, sheet := range xlFile.Sheets {
+		for i, row := range sheet.Rows {
+			if i == 0 || row.Cells[0].Value == "" || row.Cells[10].Value == "" || row.Cells[4].Value != "" {
+				continue
+			}
+			if row.Cells[0].Value == "2354" && row.Cells[2].Value == "PARA" {
+				panic("asdasd")
+			}
+			w := word{
+				ID:     getWordID(row.Cells[2].Value, row.Cells[0].Value), // Source.ID
+				verse:  row.Cells[10].Value,
+				chant:  row.Cells[3].Value,
+				text:   row.Cells[19].Value, // Normalized text
+				lemma:  row.Cells[20].Value,
+				tag:    row.Cells[21].Value,
+				source: row.Cells[2].Value,
+			}
+			data[w.ID] = w
+		}
+	}
+	return data, nil
+}
 
-	return data
+func sortID(i, j int, arr []string) bool {
+	x := strings.Split(arr[i], ".")
+	y := strings.Split(arr[j], ".")
+
+	m1, _ := strconv.ParseInt(x[1], 0, 64)
+	m2, _ := strconv.ParseInt(y[1], 0, 64)
+
+	return m1 < m2
+}
+
+func getWordID(source, id string) string {
+	return fmt.Sprintf("%s.%s", source, id)
 }
 
 func (w *word) getProblemID() string {
-	return fmt.Sprintf("%s.%d.%d", w.source, w.chant, w.verse)
+	return fmt.Sprintf("%s.%s", w.chant, w.verse)
 }
 
-func loadGoldStandard(path string, words *db) []goldStandard {
-
-	problems := getProblems(*words)
-
-	// TODO
+func loadGoldStandard(path string, words db) []goldStandard {
+	problems := getProblems(words)
 	data, err := tmx.Read(path)
 	if err != nil {
 		log.Fatalln(err)
@@ -112,35 +161,79 @@ func loadGoldStandard(path string, words *db) []goldStandard {
 
 	tus := data.Body.Tu
 	for _, tu := range tus {
-		e := getEditFromTu(tu, r)
-		problems[e.getProblemID()].a.add(e)
+		from := getWordsFromTuv(tu.Tuv[0], r, "HOM", words)
+		to := getWordsFromTuv(tu.Tuv[1], r, "PARA", words)
+		if canGetEdit(from, to) {
+			e := getEditFromTu(from, to)
+			problems[e.getProblemID()].a.add(e)
+		}
 	}
 
 	//to array
 	gs := make([]goldStandard, len(problems))
-	for _, v := range problems {
-		gs = append(gs, v)
+	for k := range problems {
+		gs = append(gs, problems[k])
 	}
-	return gs
+	as := gs[:len(gs)-10]
+	return as
+}
+
+func canGetEdit(from, to []word) bool {
+	isIns := len(from) == 0 && len(to) == 1
+	isDel := len(from) == 1 && len(to) == 0
+	isEq := len(from) == 1 && len(to) == 1 && from[0].text == to[0].text
+	notEmpty := len(from) > 0 && len(to) > 0
+	return isIns || isDel || isEq || notEmpty
 }
 
 func getProblems(words db) map[string]goldStandard {
-	// TODO
-	return map[string]goldStandard{}
+	data := map[string]goldStandard{}
+	for _, w := range words {
+		problemID := fmt.Sprintf("%s.%s", w.chant, w.verse)
+		if _, ok := data[problemID]; !ok {
+			data[problemID] = goldStandard{
+				ID: problemID,
+				p:  problem{from: map[string]word{}, to: map[string]word{}},
+				a:  newFromEdits(), // Empty alignment
+			}
+		}
+		if w.source == "HOM" {
+			data[problemID].p.from[w.ID] = w
+		}
+		if w.source == "PARA" {
+			data[problemID].p.to[w.ID] = w
+		}
+	}
+	return data
 }
 
 func equal(v, w word) bool {
 	return v.text == w.text
 }
 
-func getWordsFromTuv(tub tmx.Tuv, r *regexp.Regexp) []word {
-	return []word{} // TODO
+func getID(v string, r *regexp.Regexp) string {
+	submatch := r.FindStringSubmatch(v)
+	if len(submatch) < 3 {
+		log.Fatalln(v, submatch)
+	}
+	return submatch[2]
 }
 
-func getEditFromTu(tu tmx.Tu, r *regexp.Regexp) edit {
-	from := getWordsFromTuv(tu.Tuv[0], r)
-	to := getWordsFromTuv(tu.Tuv[1], r)
+func getWordsFromTuv(tuv tmx.Tuv, r *regexp.Regexp, source string, words db) []word {
+	parts := strings.Split(tuv.Seg.Text, " ")
+	ws := []word{}
+	for _, v := range parts {
+		if v != "" {
+			wID := getWordID(source, getID(v, r))
+			if _, ok := words[wID]; ok {
+				ws = append(ws, words[wID])
+			}
+		}
+	}
+	return ws
+}
 
+func getEditFromTu(from, to []word) edit {
 	switch l := len(from); {
 	case l == 1 && len(to) == 0:
 		return &del{w: from[0]}
@@ -200,6 +293,11 @@ func (e *eq) getProblemID() string {
 }
 
 func (e *sub) getProblemID() string {
+
+	if len(e.from) == 0 && len(e.to) == 0 {
+		fmt.Println(e)
+	}
+
 	return e.from[0].getProblemID()
 }
 
@@ -404,6 +502,34 @@ type goldStandard struct {
 	ID string
 	p  problem
 	a  *alignment
+}
+
+func (p problem) String() string {
+	fromKeys := []string{}
+	toKeys := []string{}
+	for k := range p.from {
+		fromKeys = append(fromKeys, k)
+	}
+
+	for k := range p.to {
+		toKeys = append(toKeys, k)
+	}
+	sort.SliceStable(fromKeys, func(i, j int) bool { return sortID(i, j, fromKeys) })
+	sort.SliceStable(toKeys, func(i, j int) bool { return sortID(i, j, toKeys) })
+
+	var sb strings.Builder
+	sb.WriteString("[")
+	for _, k := range fromKeys {
+		sb.WriteString(p.from[k].text)
+		sb.WriteString(" ")
+	}
+	sb.WriteString(" -> ")
+	for _, k := range toKeys {
+		sb.WriteString(p.to[k].text)
+		sb.WriteString(" ")
+	}
+	sb.WriteString("]")
+	return sb.String()
 }
 
 func shuffle(vals []goldStandard) {

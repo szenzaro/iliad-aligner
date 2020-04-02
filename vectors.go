@@ -1,12 +1,14 @@
 package main
 
+import "math"
+
 type Vector []float64
 
-func (w *Vector) Normalize(normFunc func([]float64)float64) []float64 {
-	v := make([]float64, len(w))
-	norm := normFunc(w)
-	for i, xi := range w {
-		v[i] := xi / norm
+func (w *Vector) Normalize(normFunc func([]float64) float64) Vector {
+	v := make(Vector, len(*w))
+	norm := normFunc(*w)
+	for i, xi := range *w {
+		v[i] = xi / norm
 	}
 	return v
 }
@@ -50,9 +52,9 @@ func Sum(v1, v2 Vector) Vector {
 }
 
 func (w *Vector) Scale(k float64) Vector {
-	v := make([]float64, len(v1))
-	for i, x := range w {
-		v[i] = k * x 
+	v := make([]float64, len(*w))
+	for i, x := range *w {
+		v[i] = k * x
 	}
 	return v
 }
