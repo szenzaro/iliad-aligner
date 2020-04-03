@@ -52,13 +52,13 @@ func (*greekAligner) next(a *alignment) []alignment {
 	for _, x := range dels {
 		delWords = append(delWords, x.(*del).w)
 	}
-	subDels := limitedSubsequences(delWords, 5)
+	subDels := limitedSubsequences(delWords, 3)
 
 	insWords := []word{}
 	for _, x := range inss {
 		insWords = append(insWords, x.(*ins).w)
 	}
-	subIns := limitedSubsequences(insWords, 5)
+	subIns := limitedSubsequences(insWords, 3)
 
 	for _, d := range subDels {
 		for _, i := range subIns {
@@ -166,33 +166,27 @@ func limitedSubsequences(arr []word, limit int) [][]word {
 func removeEditWithWordsByID(a *alignment, ws ...word) {
 	toremove := []edit{}
 
-	inss := a.filter(reflect.TypeOf(&ins{}))
-	dels := a.filter(reflect.TypeOf(&del{}))
-	eqs := a.filter(reflect.TypeOf(&eq{}))
-	subs := a.filter(reflect.TypeOf(&sub{}))
-
 	for _, w := range ws {
-		for _, v := range inss {
-			if v.(*ins).w.ID == w.ID && v.(*ins).w == w {
-				toremove = append(toremove, v)
-			}
-		}
-		for _, v := range dels {
-			if v.(*del).w.ID == w.ID && v.(*del).w == w {
-				toremove = append(toremove, v)
-			}
-		}
-		for _, v := range eqs {
-			if (v.(*eq).from == w || v.(*eq).to == w) &&
-				(v.(*eq).from.ID == w.ID || v.(*eq).to.ID == w.ID) {
-				toremove = append(toremove, v)
-			}
-		}
-		for _, v := range subs {
-			for _, x := range append(v.(*sub).from[:], v.(*sub).to[:]...) {
-				if x.ID == w.ID && x == w {
+		for _, v := range a.editMap {
+			switch v.(type) {
+			case *ins:
+				if v.(*ins).w.ID == w.ID && v.(*ins).w == w {
 					toremove = append(toremove, v)
-					break
+				}
+			case *del:
+				if v.(*del).w.ID == w.ID && v.(*del).w == w {
+					toremove = append(toremove, v)
+				}
+			case *eq:
+				if (v.(*eq).from == w || v.(*eq).to == w) && (v.(*eq).from.ID == w.ID || v.(*eq).to.ID == w.ID) {
+					toremove = append(toremove, v)
+				}
+			case *sub:
+				for _, x := range append(v.(*sub).from[:], v.(*sub).to[:]...) {
+					if x.ID == w.ID && x == w {
+						toremove = append(toremove, v)
+						break
+					}
 				}
 			}
 		}

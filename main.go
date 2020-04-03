@@ -6,8 +6,10 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"os"
 	"reflect"
 	"regexp"
+	"runtime/pprof"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,6 +22,12 @@ import (
 )
 
 func main() {
+	f, err := os.Create("cpu_profile")
+	if err != nil {
+		log.Fatal(err)
+	}
+	pprof.StartCPUProfile(f)
+	defer pprof.StopCPUProfile()
 
 	wordsPath := flag.String("w", "", "path to the xlsx file containing all the words")
 	tsPath := flag.String("ts", "", "path to the tmx file containing the alignment for the words in the DB")
@@ -34,7 +42,7 @@ func main() {
 	gs := loadGoldStandard(*tsPath, wordsDB)
 
 	// splitIndex := 3 * len(gs) / 10 // about 30%
-	splitIndex := 1 * len(gs) / 10 // about 10%
+	splitIndex := 25 * len(gs) / 100 // about 25%
 	trainingSet := gs[:splitIndex]
 	testSet := gs[splitIndex:]
 
@@ -50,18 +58,31 @@ func main() {
 		}
 		return a
 	}
+	// w := []loat64{0.8163154119427677, 0.434355201334352}
+	// w:= []float64{0.8919365458246602, 0.3045951829127752}
+	// w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg)
+	w := learn(trainingSet, 40, 9, 1.0, 0.8, ff, alignAlg)
 
-	w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg)
+	fmt.Println("Learned w: ", w)
 
+	fmt.Println("Align verses: ")
+
+	totalAcc := 0.0
+	start := time.Now()
 	for _, p := range testSet {
+		fmt.Println(p.ID)
 		a := newFromWordBags(p.p.from, p.p.to)
 		res, err := a.align(ar, ff, w)
 		if err != nil {
 			log.Fatalln(err)
 		}
-		fmt.Println(res)
+		acc := scoreAccuracy(p.a, res, ff, w)
+		fmt.Println(res, " with accuracy ", acc)
+		totalAcc += acc
 	}
-
+	elapsed := time.Since(start)
+	fmt.Println("Time needed: ", elapsed)
+	fmt.Println("Total accuracy: ", totalAcc/float64(len(testSet)))
 	// wordsDB := loadDB(*wordsPath)
 	// for v := range editTypes {
 	// 	trainingSet := loadTrainingSet(v)
@@ -278,8 +299,22 @@ func lexicalSimilarity(e edit) float64 {
 		to = e.(*sub).to
 	}
 	source, target := sumWords(from), sumWords(to)
-	v := normalizedDist([]string{source.text}, []string{target.text})
-	return float64(v)
+	textV := 1 - levenshteinDistance(source.text, target.text)
+	lemmaV := 1 - levenshteinDistance(source.lemma, target.lemma)
+	tagV := 1 - levenshteinDistance(source.tag, target.tag)
+
+	// v := normalizedDist([]string{source.text}, []string{target.text})
+	return multiMax(textV, lemmaV, tagV)
+}
+
+func multiMax(vs ...float64) float64 {
+	max := math.Inf(-1)
+	for _, v := range vs {
+		if v > max {
+			max = v
+		}
+	}
+	return max
 }
 
 func subDist(source, target []string) float64 {
@@ -570,7 +605,7 @@ func learn(
 		R = r * R
 		shuffle(trainingProblems)
 		for j := 0; j < n; j++ {
-			fmt.Println(j, "/", n, " -- of ", i, "/", N)
+			fmt.Println(j, "/", n, " -- of ", i+1, "/", N)
 			Ej := alignAlg(trainingProblems[j].p, w)
 			diff := Diff(phi(trainingProblems[j].a, featureFunctions), phi(Ej, featureFunctions)) // phi(Ej) - phi(Êj)
 			w = Sum(w, diff.Scale(R))
@@ -578,7 +613,7 @@ func learn(
 		w = w.Normalize(Norm2)
 		epochs = append(epochs, w)
 		elapsed := time.Since(start)
-		fmt.Println("lap ", i, " finished in ", elapsed)
+		fmt.Println("lap ", i+1, " finished in ", elapsed)
 	}
 	elapsed := time.Since(start)
 	fmt.Println("trained in  ", elapsed)
