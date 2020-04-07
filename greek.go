@@ -13,7 +13,7 @@ func NewGreekAligner(sch Scholie) *greekAligner {
 	return &greekAligner{}
 }
 
-func (*greekAligner) next(a *alignment) []alignment {
+func (*greekAligner) next(a *alignment, subSeqLen int) []alignment {
 	nextAlignments := []alignment{}
 
 	dels := a.filter(reflect.TypeOf(&del{}))
@@ -52,13 +52,13 @@ func (*greekAligner) next(a *alignment) []alignment {
 	for _, x := range dels {
 		delWords = append(delWords, x.(*del).w)
 	}
-	subDels := limitedSubsequences(delWords, 3)
+	subDels := limitedSubsequences(delWords, subSeqLen)
 
 	insWords := []word{}
 	for _, x := range inss {
 		insWords = append(insWords, x.(*ins).w)
 	}
-	subIns := limitedSubsequences(insWords, 3)
+	subIns := limitedSubsequences(insWords, subSeqLen)
 
 	for _, d := range subDels {
 		for _, i := range subIns {

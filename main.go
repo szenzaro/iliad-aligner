@@ -9,6 +9,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"runtime"
 	"runtime/pprof"
 	"sort"
 	"strconv"
@@ -41,61 +42,67 @@ func main() {
 	}
 	gs := loadGoldStandard(*tsPath, wordsDB)
 
-	// splitIndex := 3 * len(gs) / 10 // about 30%
-	splitIndex := 25 * len(gs) / 100 // about 25%
+	splitIndex := 3 * len(gs) / 10 // about 30%
 	trainingSet := gs[:splitIndex]
 	testSet := gs[splitIndex:]
 
 	ff := []feature{
 		editType,
 		lexicalSimilarity,
+		lemmaDistance,
+		tagDistance,
 	}
 	ar := NewGreekAligner(Scholie{}) // TODO load scholie
+	subseqLen := 3
 	alignAlg := func(p problem, w []float64) *alignment {
-		a, err := newFromWordBags(p.from, p.to).align(ar, ff, w)
+		a, err := newFromWordBags(p.from, p.to).align(ar, ff, w, subseqLen)
 		if err != nil {
 			log.Fatalln(err)
 		}
 		return a
 	}
-	// w := []loat64{0.8163154119427677, 0.434355201334352}
-	// w:= []float64{0.8919365458246602, 0.3045951829127752}
+	// w:=  []float64{0.9668163361323169, 0.14577072520289328}
 	// w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg)
 	w := learn(trainingSet, 40, 9, 1.0, 0.8, ff, alignAlg)
-
-	fmt.Println("Learned w: ", w)
+	// w := learn(trainingSet, 4, 1, 1.0, 0.8, ff, alignAlg)
 
 	fmt.Println("Align verses: ")
 
 	totalAcc := 0.0
+	totalEditAcc := 0.0
 	start := time.Now()
 	for _, p := range testSet {
 		fmt.Println(p.ID)
 		a := newFromWordBags(p.p.from, p.p.to)
-		res, err := a.align(ar, ff, w)
+		res, err := a.align(ar, ff, w, subseqLen)
 		if err != nil {
 			log.Fatalln(err)
 		}
 		acc := scoreAccuracy(p.a, res, ff, w)
-		fmt.Println(res, " with accuracy ", acc)
 		totalAcc += acc
+		editAcc := res.editsAccuracy(p.a)
+		totalEditAcc += editAcc
+		fmt.Println()
+		fmt.Println("Expected: ", p.a)
+		fmt.Println("Got: ", res)
+		fmt.Println("with accuracy ", acc)
+		fmt.Println("with edit accuracy ", editAcc)
+		fmt.Println()
 	}
 	elapsed := time.Since(start)
-	fmt.Println("Time needed: ", elapsed)
+	fmt.Println("Learned w: ", w)
+	fmt.Println("Split percentage: ", float64(splitIndex)/float64(len(gs)))
+	fmt.Println("Alignment time needed: ", elapsed)
+	fmt.Println("With functions:")
+	for _, f := range ff {
+		fmt.Println("\t- ", getFunctionName(f))
+	}
 	fmt.Println("Total accuracy: ", totalAcc/float64(len(testSet)))
-	// wordsDB := loadDB(*wordsPath)
-	// for v := range editTypes {
-	// 	trainingSet := loadTrainingSet(v)
-	// 	trainingData, testData := trainingSet.Split(0.3)
+	fmt.Println("Total edit accuracy: ", totalEditAcc/float64(len(testSet)))
+}
 
-	// 	trainer.AddFeatures(
-	// 		f1,
-	// 		f2,
-	// 		f3,
-	// 	)
-	// 	values := trainter.Train(trainingSet)
-	// 	edit.SetValues(values)
-	// }
+func getFunctionName(i interface{}) string {
+	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
 }
 
 func scoreAccuracy(a, b *alignment, fs []feature, w []float64) float64 {
@@ -103,8 +110,15 @@ func scoreAccuracy(a, b *alignment, fs []feature, w []float64) float64 {
 	return 1.0 - math.Abs(sa-sb)/math.Max(sa, sb)
 }
 
-func editsAccuracy(a, b *alignment, w []float64) float64 {
-	return 0.0 // TODO: check edit presence from a to b
+// editsAccuracy checks the ratio of edits in a that are also in std (the "correct" version)
+func (a *alignment) editsAccuracy(std *alignment) float64 {
+	n := 0
+	for _, e := range std.editMap {
+		if a.Includes(e) {
+			n++
+		}
+	}
+	return float64(n) / float64(len(std.editMap))
 }
 
 type word struct {
@@ -283,7 +297,7 @@ func editType(e edit) float64 {
 	}
 }
 
-func lexicalSimilarity(e edit) float64 {
+func getWords(e edit) ([]word, []word) {
 	from := []word{}
 	to := []word{}
 	switch e.(type) {
@@ -298,13 +312,31 @@ func lexicalSimilarity(e edit) float64 {
 		from = e.(*sub).from
 		to = e.(*sub).to
 	}
+	return from, to
+}
+
+func lemmaDistance(e edit) float64 {
+	from, to := getWords(e)
+	source, target := sumWords(from), sumWords(to)
+	lemmaV := 1 - levenshteinDistance(source.lemma, target.lemma)
+	return lemmaV
+}
+
+func tagDistance(e edit) float64 {
+	from, to := getWords(e)
+	source, target := sumWords(from), sumWords(to)
+	tagV := 1 - levenshteinDistance(source.tag, target.tag)
+	return tagV
+}
+
+func lexicalSimilarity(e edit) float64 {
+	from, to := getWords(e)
 	source, target := sumWords(from), sumWords(to)
 	textV := 1 - levenshteinDistance(source.text, target.text)
-	lemmaV := 1 - levenshteinDistance(source.lemma, target.lemma)
-	tagV := 1 - levenshteinDistance(source.tag, target.tag)
+	// lemmaV := 1 - levenshteinDistance(source.lemma, target.lemma)
+	// tagV := 1 - levenshteinDistance(source.tag, target.tag)
 
-	// v := normalizedDist([]string{source.text}, []string{target.text})
-	return multiMax(textV, lemmaV, tagV)
+	return multiMax(textV) //, lemmaV, tagV)
 }
 
 func multiMax(vs ...float64) float64 {
@@ -495,6 +527,54 @@ type alignment struct {
 	editMap map[edit]edit
 }
 
+func (a *alignment) Includes(e edit) bool {
+	for k := range a.editMap {
+		if reflect.TypeOf(e) != reflect.TypeOf(k) {
+			continue
+		}
+		switch k.(type) {
+		case *ins:
+			if k.(*ins).w.ID == e.(*ins).w.ID {
+				return true
+			}
+		case *del:
+			if k.(*del).w.ID == e.(*del).w.ID {
+				return true
+			}
+		case *eq:
+			if k.(*eq).from.ID == e.(*eq).from.ID && k.(*eq).to.ID == e.(*eq).to.ID {
+				return true
+			}
+		case *sub:
+			if equalSub(k.(*sub), e.(*sub)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func equalSub(s, t *sub) bool {
+	m := map[string]bool{}
+	for _, k := range s.from {
+		m[k.ID] = true
+	}
+	for _, w := range t.from {
+		if !m[w.ID] {
+			return false
+		}
+	}
+	for _, k := range s.to {
+		m[k.ID] = true
+	}
+	for _, w := range t.to {
+		if !m[w.ID] {
+			return false
+		}
+	}
+	return true
+}
+
 func (a *alignment) Score(fs []feature, ws []float64) float64 {
 	score := 0.0
 	for _, e := range a.editMap {
@@ -544,7 +624,7 @@ func newFromEdits(es ...edit) *alignment {
 }
 
 type aligner interface {
-	next(a *alignment) []alignment
+	next(a *alignment, subSeqLen int) []alignment
 }
 
 func (a *alignment) String() string {
@@ -558,11 +638,11 @@ func (a *alignment) String() string {
 	return sb.String()
 }
 
-func (a *alignment) align(ar aligner, fs []feature, ws []float64) (*alignment, error) {
+func (a *alignment) align(ar aligner, fs []feature, ws []float64, subseqLen int) (*alignment, error) {
 	if len(fs) != len(ws) {
 		return nil, fmt.Errorf("features and weights len mismatch")
 	}
-	F := ar.next(a)
+	F := ar.next(a, subseqLen)
 	if len(F) == 0 {
 		return a, nil
 	}
@@ -582,7 +662,7 @@ func (a *alignment) align(ar aligner, fs []feature, ws []float64) (*alignment, e
 	// for _, v := range scored[:min(len(scored), 10)] {
 	// 	fmt.Println(v.a, " - ", v.v)
 	// }
-	return maxAlign.align(ar, fs, ws)
+	return maxAlign.align(ar, fs, ws, subseqLen)
 }
 
 func learn(
@@ -605,7 +685,7 @@ func learn(
 		R = r * R
 		shuffle(trainingProblems)
 		for j := 0; j < n; j++ {
-			fmt.Println(j, "/", n, " -- of ", i+1, "/", N)
+			fmt.Println(j+1, "/", n, " -- of ", i+1, "/", N)
 			Ej := alignAlg(trainingProblems[j].p, w)
 			diff := Diff(phi(trainingProblems[j].a, featureFunctions), phi(Ej, featureFunctions)) // phi(Ej) - phi(Êj)
 			w = Sum(w, diff.Scale(R))
