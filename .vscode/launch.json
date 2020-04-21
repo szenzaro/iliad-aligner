@@ -11,7 +11,7 @@
             "mode": "auto",
             "program": "${fileDirname}",
             "env": {},
-            "args": ["-w", "data/G44_I_III_HomPara.xlsx", "-ts", "data/G44_ALI.tmx"]
+            "args": ["-w", "data/G44_I_III_HomPara.xlsx", "-ts", "data/G44_ALI.tmx", "-sch", "data/scholied.json", "-voc", "data/Vocabulaire_Genavensis.xlsx"]
         }
     ]
 }

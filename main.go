@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math"
 	"math/rand"
@@ -22,6 +24,9 @@ import (
 	"github.com/texttheater/golang-levenshtein/levenshtein"
 )
 
+var voc map[string][]string
+var scholie map[string][]string
+
 func main() {
 	f, err := os.Create("cpu_profile")
 	if err != nil {
@@ -32,27 +37,47 @@ func main() {
 
 	wordsPath := flag.String("w", "", "path to the xlsx file containing all the words")
 	tsPath := flag.String("ts", "", "path to the tmx file containing the alignment for the words in the DB")
+	vocPath := flag.String("voc", "data/Vocabulaire_Genavensis.xlsx", "path to the vocabulary xlsx file")
+	scholiePath := flag.String("sch", "data/scholied.json", "path to the scholie JSON file")
+
 	flag.Parse()
 
 	// TODO: check flags for errors or empty strings
+	fmt.Println("Loading vocabulary")
+	voc, err = loadVoc(*vocPath)
+	if err != nil {
+		log.Fatalln(err)
+	}
 
+	fmt.Println("Loading scholie")
+	scholie, err = loadScholie(*scholiePath)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	fmt.Println("Loading words database")
 	wordsDB, err := loadDB(*wordsPath)
 	if err != nil {
 		log.Fatalln(err)
 	}
+	fmt.Println("Loading gold standard")
 	gs := loadGoldStandard(*tsPath, wordsDB)
 
 	splitIndex := 3 * len(gs) / 10 // about 30%
+	// splitIndex := 1 * len(gs) / 100 // about 20%
 	trainingSet := gs[:splitIndex]
 	testSet := gs[splitIndex:]
 
 	ff := []feature{
-		editType,
-		lexicalSimilarity,
-		lemmaDistance,
-		tagDistance,
+		// editType,
+		// lexicalSimilarity,
+		// lemmaDistance,
+		// tagDistance,
+		// vocDistance,
+		scholieDistance,
+		//maxDistance
 	}
-	ar := NewGreekAligner(Scholie{}) // TODO load scholie
+	ar := NewGreekAligner() // TODO load scholie
 	subseqLen := 3
 	alignAlg := func(p problem, w []float64) *alignment {
 		a, err := newFromWordBags(p.from, p.to).align(ar, ff, w, subseqLen)
@@ -63,6 +88,7 @@ func main() {
 	}
 	// w:=  []float64{0.9668163361323169, 0.14577072520289328}
 	// w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg)
+	fmt.Println("Start learning process...")
 	w := learn(trainingSet, 40, 9, 1.0, 0.8, ff, alignAlg)
 	// w := learn(trainingSet, 4, 1, 1.0, 0.8, ff, alignAlg)
 
@@ -71,8 +97,8 @@ func main() {
 	totalAcc := 0.0
 	totalEditAcc := 0.0
 	start := time.Now()
-	for _, p := range testSet {
-		fmt.Println(p.ID)
+	for i, p := range testSet {
+		fmt.Println(p.ID, " ", i*100/len(testSet))
 		a := newFromWordBags(p.p.from, p.p.to)
 		res, err := a.align(ar, ff, w, subseqLen)
 		if err != nil {
@@ -107,6 +133,10 @@ func getFunctionName(i interface{}) string {
 
 func scoreAccuracy(a, b *alignment, fs []feature, w []float64) float64 {
 	sa, sb := a.Score(fs, w), b.Score(fs, w)
+	max := math.Max(sa, sb)
+	if max == 0.0 {
+		return 0.0
+	}
 	return 1.0 - math.Abs(sa-sb)/math.Max(sa, sb)
 }
 
@@ -144,7 +174,7 @@ func loadDB(path string) (db, error) {
 				continue
 			}
 			if row.Cells[0].Value == "2354" && row.Cells[2].Value == "PARA" {
-				panic("asdasd")
+				panic("asdasd") // TODO
 			}
 			w := word{
 				ID:     getWordID(row.Cells[2].Value, row.Cells[0].Value), // Source.ID
@@ -223,7 +253,7 @@ func getProblems(words db) map[string]goldStandard {
 		problemID := fmt.Sprintf("%s.%s", w.chant, w.verse)
 		if _, ok := data[problemID]; !ok {
 			if problemID == "" || w.source == "" {
-				panic("AA")
+				panic("AA") // TODO
 			}
 			data[problemID] = goldStandard{
 				ID: problemID,
@@ -297,6 +327,15 @@ func editType(e edit) float64 {
 	}
 }
 
+func maxDistance(e edit) float64 {
+	return multiMax(
+		lexicalSimilarity(e),
+		lemmaDistance(e),
+		tagDistance(e),
+		vocDistance(e),
+	)
+}
+
 func getWords(e edit) ([]word, []word) {
 	from := []word{}
 	to := []word{}
@@ -313,6 +352,129 @@ func getWords(e edit) ([]word, []word) {
 		to = e.(*sub).to
 	}
 	return from, to
+}
+
+func loadScholie(path string) (map[string][]string, error) {
+	jsonFile, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer jsonFile.Close()
+	d, err := ioutil.ReadAll(jsonFile)
+	if err != nil {
+		return nil, err
+	}
+	var data map[string]map[string][]string
+	if err := json.Unmarshal(d, &data); err != nil {
+		return nil, err
+	}
+
+	sch := map[string][]string{}
+	for _, verse := range data {
+		for k, v := range verse {
+			sch[k] = v
+		}
+	}
+	return sch, nil
+}
+
+func scholieDistance(e edit) float64 {
+	from, to := getWords(e)
+	source, target := sumWords(from), sumWords(to)
+
+	entry := source.text
+	// for k := range scholie { // TODO
+	// 	if levenshteinDistance(k, source.text) <= 1 {
+	// 		entry = k
+	// 		break
+	// 	}
+	// }
+	// if entry == "" {
+	// 	return 0.0
+	// }
+
+	if len(scholie[entry]) == 0 {
+		return 0.0
+	}
+
+	mindist := math.Inf(0)
+	chosen := ""
+	for _, v := range scholie[entry] {
+		dist := levenshteinDistance(target.text, v)
+		if dist <= mindist {
+			mindist = dist
+			chosen = v
+		}
+	}
+	if chosen == "" {
+		return 0.0
+	}
+	a := mindist / multiMax(float64(len(target.text)), float64(len(chosen)))
+	return 1.0 - a //mindist/multiMax(float64(len(target.text)), float64(len(chosen)))
+}
+
+func loadVoc(path string) (map[string][]string, error) {
+	xlFile, err := xlsx.OpenFile(path)
+	if err != nil {
+		return nil, err
+	}
+	sheet := xlFile.Sheets[0]
+	voc := map[string][]string{}
+
+	getMeanings := func(s string) []string {
+		m := []string{}
+		for _, p := range strings.Split(s, "-") {
+			m = append(m, strings.TrimSpace(p))
+		}
+		return m
+	}
+
+	for _, row := range sheet.Rows {
+		if len(row.Cells) < 2 {
+			continue
+		}
+		voc[row.Cells[0].Value] = append(voc[row.Cells[0].Value], getMeanings(row.Cells[1].Value)...)
+	}
+	return voc, nil
+}
+
+func hasSameMeaning(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for _, w := range a {
+		for _, x := range b {
+			if w == x {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func vocDistance(e edit) float64 {
+	switch e.(type) {
+	case *ins:
+		return 0.0
+	case *del:
+		return 0.0
+	case *eq:
+		if hasSameMeaning(voc[e.(*eq).from.lemma], voc[e.(*eq).to.lemma]) {
+			return 1.0
+		}
+		return 0.0
+	case *sub:
+		// TODO expand for multiple words subs
+		from := e.(*sub).from
+		to := e.(*sub).to
+		if len(from) == 1 && len(to) == 1 {
+			if hasSameMeaning(voc[from[0].lemma], voc[to[0].lemma]) {
+				return 1.0
+			}
+		}
+		return 0.0
+	}
+	return 0.0
 }
 
 func lemmaDistance(e edit) float64 {
@@ -337,6 +499,16 @@ func lexicalSimilarity(e edit) float64 {
 	// tagV := 1 - levenshteinDistance(source.tag, target.tag)
 
 	return multiMax(textV) //, lemmaV, tagV)
+}
+
+func multiMin(vs ...float64) float64 {
+	min := math.Inf(1)
+	for _, v := range vs {
+		if v < min {
+			min = v
+		}
+	}
+	return min
 }
 
 func multiMax(vs ...float64) float64 {
@@ -447,7 +619,7 @@ func (e *eq) getProblemID() string {
 func (e *sub) getProblemID() string {
 
 	if len(e.from) == 0 && len(e.to) == 0 {
-		fmt.Println(e)
+		fmt.Println(e) // TODO
 	}
 
 	return e.from[0].getProblemID()
@@ -534,15 +706,15 @@ func (a *alignment) Includes(e edit) bool {
 		}
 		switch k.(type) {
 		case *ins:
-			if k.(*ins).w.ID == e.(*ins).w.ID {
+			if k.(*ins).w.text == e.(*ins).w.text {
 				return true
 			}
 		case *del:
-			if k.(*del).w.ID == e.(*del).w.ID {
+			if k.(*del).w.text == e.(*del).w.text {
 				return true
 			}
 		case *eq:
-			if k.(*eq).from.ID == e.(*eq).from.ID && k.(*eq).to.ID == e.(*eq).to.ID {
+			if k.(*eq).from.text == e.(*eq).from.text && k.(*eq).to.text == e.(*eq).to.text {
 				return true
 			}
 		case *sub:

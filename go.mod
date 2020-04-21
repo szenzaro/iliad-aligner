@@ -1,4 +1,4 @@
-module new-aligner
+module szenzaro/iliad-aligner
 
 go 1.13
 

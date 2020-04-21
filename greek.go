@@ -8,8 +8,7 @@ import (
 
 type greekAligner struct{}
 
-func NewGreekAligner(sch Scholie) *greekAligner {
-	scholie = sch
+func NewGreekAligner() *greekAligner {
 	return &greekAligner{}
 }
 
@@ -114,8 +113,6 @@ func (*greekAligner) next(a *alignment, subSeqLen int) []alignment {
 
 // Scholie data
 type Scholie map[string]map[string][]string
-
-var scholie Scholie
 
 var mutex = &sync.Mutex{}
 
