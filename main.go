@@ -64,21 +64,21 @@ func main() {
 	gs := loadGoldStandard(*tsPath, wordsDB)
 
 	splitIndex := 3 * len(gs) / 10 // about 30%
-	// splitIndex := 1 * len(gs) / 100 // about 20%
+	// splitIndex := 25 * len(gs) / 100 // about 25%
 	trainingSet := gs[:splitIndex]
 	testSet := gs[splitIndex:]
 
 	ff := []feature{
-		// editType,
-		// lexicalSimilarity,
-		// lemmaDistance,
-		// tagDistance,
-		// vocDistance,
+		editType,
+		lexicalSimilarity,
+		lemmaDistance,
+		tagDistance,
+		vocDistance,
 		scholieDistance,
-		//maxDistance
+		maxDistance,
 	}
 	ar := NewGreekAligner() // TODO load scholie
-	subseqLen := 3
+	subseqLen := 5
 	alignAlg := func(p problem, w []float64) *alignment {
 		a, err := newFromWordBags(p.from, p.to).align(ar, ff, w, subseqLen)
 		if err != nil {
@@ -89,7 +89,7 @@ func main() {
 	// w:=  []float64{0.9668163361323169, 0.14577072520289328}
 	// w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg)
 	fmt.Println("Start learning process...")
-	w := learn(trainingSet, 40, 9, 1.0, 0.8, ff, alignAlg)
+	w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg)
 	// w := learn(trainingSet, 4, 1, 1.0, 0.8, ff, alignAlg)
 
 	fmt.Println("Align verses: ")
@@ -333,6 +333,7 @@ func maxDistance(e edit) float64 {
 		lemmaDistance(e),
 		tagDistance(e),
 		vocDistance(e),
+		scholieDistance(e),
 	)
 }
 
@@ -393,6 +394,18 @@ func scholieDistance(e edit) float64 {
 	// 	return 0.0
 	// }
 
+	// foundH := ""
+	// for k := range scholie {
+	// 	if levenshteinDistance(k, entry) < 3 {
+	// 		foundH = k
+	// 		break
+	// 	}
+	// }
+
+	// if foundH == "" {
+	// 	return 0.0
+	// }
+
 	if len(scholie[entry]) == 0 {
 		return 0.0
 	}
@@ -409,8 +422,8 @@ func scholieDistance(e edit) float64 {
 	if chosen == "" {
 		return 0.0
 	}
-	a := mindist / multiMax(float64(len(target.text)), float64(len(chosen)))
-	return 1.0 - a //mindist/multiMax(float64(len(target.text)), float64(len(chosen)))
+	// a := mindist / multiMax(float64(len(target.text)), float64(len(chosen)))
+	return 1.0 - mindist //mindist/multiMax(float64(len(target.text)), float64(len(chosen)))
 }
 
 func loadVoc(path string) (map[string][]string, error) {
@@ -857,10 +870,12 @@ func learn(
 		R = r * R
 		shuffle(trainingProblems)
 		for j := 0; j < n; j++ {
-			fmt.Println(j+1, "/", n, " -- of ", i+1, "/", N)
+			fmt.Println(j+1, "/", n, " -- of ", i+1, "/", N, " ", trainingProblems[j].ID)
+			ss := time.Now()
 			Ej := alignAlg(trainingProblems[j].p, w)
 			diff := Diff(phi(trainingProblems[j].a, featureFunctions), phi(Ej, featureFunctions)) // phi(Ej) - phi(Êj)
 			w = Sum(w, diff.Scale(R))
+			fmt.Println("finished in: ", time.Since(ss))
 		}
 		w = w.Normalize(Norm2)
 		epochs = append(epochs, w)
