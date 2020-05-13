@@ -69,12 +69,12 @@ func main() {
 	testSet := gs[splitIndex:]
 
 	ff := []feature{
-		editType,
+		// editType,
 		lexicalSimilarity,
 		lemmaDistance,
 		tagDistance,
-		vocDistance,
-		scholieDistance,
+		// vocDistance,
+		// scholieDistance,
 		maxDistance,
 	}
 	ar := NewGreekAligner() // TODO load scholie
@@ -89,7 +89,10 @@ func main() {
 	// w:=  []float64{0.9668163361323169, 0.14577072520289328}
 	// w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg)
 	fmt.Println("Start learning process...")
+	startLearn := time.Now()
 	w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg)
+	elapsedLearn := time.Since(startLearn)
+
 	// w := learn(trainingSet, 4, 1, 1.0, 0.8, ff, alignAlg)
 
 	fmt.Println("Align verses: ")
@@ -118,6 +121,7 @@ func main() {
 	elapsed := time.Since(start)
 	fmt.Println("Learned w: ", w)
 	fmt.Println("Split percentage: ", float64(splitIndex)/float64(len(gs)))
+	fmt.Println("Learn time needed: ", elapsedLearn)
 	fmt.Println("Alignment time needed: ", elapsed)
 	fmt.Println("With functions:")
 	for _, f := range ff {
