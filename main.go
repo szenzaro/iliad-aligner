@@ -24,8 +24,7 @@ import (
 	"github.com/texttheater/golang-levenshtein/levenshtein"
 )
 
-var voc map[string][]string
-var scholie map[string][]string
+var additionalData map[string]interface{}
 
 func main() {
 	f, err := os.Create("cpu_profile")
@@ -41,19 +40,25 @@ func main() {
 	scholiePath := flag.String("sch", "data/scholied.json", "path to the scholie JSON file")
 
 	flag.Parse()
-
 	// TODO: check flags for errors or empty strings
+
+	additionalData = map[string]interface{}{}
+
 	fmt.Println("Loading vocabulary")
-	voc, err = loadVoc(*vocPath)
+	voc, err := loadVoc(*vocPath)
 	if err != nil {
 		log.Fatalln(err)
 	}
+
+	additionalData["vocDistance"] = voc
 
 	fmt.Println("Loading scholie")
-	scholie, err = loadScholie(*scholiePath)
+	scholie, err := loadScholie(*scholiePath)
 	if err != nil {
 		log.Fatalln(err)
 	}
+
+	additionalData["scholieDistance"] = scholie
 
 	fmt.Println("Loading words database")
 	wordsDB, err := loadDB(*wordsPath)
@@ -80,7 +85,7 @@ func main() {
 	ar := NewGreekAligner() // TODO load scholie
 	subseqLen := 5
 	alignAlg := func(p problem, w []float64) *alignment {
-		a, err := newFromWordBags(p.from, p.to).align(ar, ff, w, subseqLen)
+		a, err := newFromWordBags(p.from, p.to).align(ar, ff, w, subseqLen, additionalData)
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -90,7 +95,7 @@ func main() {
 	// w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg)
 	fmt.Println("Start learning process...")
 	startLearn := time.Now()
-	w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg)
+	w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg, additionalData)
 	elapsedLearn := time.Since(startLearn)
 
 	// w := learn(trainingSet, 4, 1, 1.0, 0.8, ff, alignAlg)
@@ -103,11 +108,11 @@ func main() {
 	for i, p := range testSet {
 		fmt.Println(p.ID, " ", i*100/len(testSet))
 		a := newFromWordBags(p.p.from, p.p.to)
-		res, err := a.align(ar, ff, w, subseqLen)
+		res, err := a.align(ar, ff, w, subseqLen, additionalData)
 		if err != nil {
 			log.Fatalln(err)
 		}
-		acc := scoreAccuracy(p.a, res, ff, w)
+		acc := scoreAccuracy(p.a, res, ff, w, additionalData)
 		totalAcc += acc
 		editAcc := res.editsAccuracy(p.a)
 		totalEditAcc += editAcc
@@ -135,8 +140,8 @@ func getFunctionName(i interface{}) string {
 	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
 }
 
-func scoreAccuracy(a, b *alignment, fs []feature, w []float64) float64 {
-	sa, sb := a.Score(fs, w), b.Score(fs, w)
+func scoreAccuracy(a, b *alignment, fs []feature, w []float64, data map[string]interface{}) float64 {
+	sa, sb := a.Score(fs, w, data), b.Score(fs, w, data)
 	max := math.Max(sa, sb)
 	if max == 0.0 {
 		return 0.0
@@ -314,9 +319,9 @@ func getEditFromTu(from, to []word) edit {
 	}
 }
 
-type feature func(edit) float64 // func(sw, tw []word) float64
+type feature func(edit, map[string]interface{}) float64 // func(sw, tw []word) float64
 
-func editType(e edit) float64 {
+func editType(e edit, data map[string]interface{}) float64 {
 	switch e.(type) {
 	case *ins:
 		return 1.0
@@ -331,13 +336,13 @@ func editType(e edit) float64 {
 	}
 }
 
-func maxDistance(e edit) float64 {
+func maxDistance(e edit, data map[string]interface{}) float64 {
 	return multiMax(
-		lexicalSimilarity(e),
-		lemmaDistance(e),
-		tagDistance(e),
-		vocDistance(e),
-		scholieDistance(e),
+		lexicalSimilarity(e, data),
+		lemmaDistance(e, data),
+		tagDistance(e, data),
+		vocDistance(e, data),
+		scholieDistance(e, data),
 	)
 }
 
@@ -383,9 +388,10 @@ func loadScholie(path string) (map[string][]string, error) {
 	return sch, nil
 }
 
-func scholieDistance(e edit) float64 {
+func scholieDistance(e edit, sch map[string]interface{}) float64 {
 	from, to := getWords(e)
 	source, target := sumWords(from), sumWords(to)
+	scholie := sch["scholieDistance"].(map[string][]string)
 
 	entry := source.text
 	// for k := range scholie { // TODO
@@ -469,7 +475,8 @@ func hasSameMeaning(a, b []string) bool {
 	return false
 }
 
-func vocDistance(e edit) float64 {
+func vocDistance(e edit, data map[string]interface{}) float64 {
+	voc := data["vocDistance"].(map[string][]string)
 	switch e.(type) {
 	case *ins:
 		return 0.0
@@ -494,21 +501,21 @@ func vocDistance(e edit) float64 {
 	return 0.0
 }
 
-func lemmaDistance(e edit) float64 {
+func lemmaDistance(e edit, data map[string]interface{}) float64 {
 	from, to := getWords(e)
 	source, target := sumWords(from), sumWords(to)
 	lemmaV := 1 - levenshteinDistance(source.lemma, target.lemma)
 	return lemmaV
 }
 
-func tagDistance(e edit) float64 {
+func tagDistance(e edit, data map[string]interface{}) float64 {
 	from, to := getWords(e)
 	source, target := sumWords(from), sumWords(to)
 	tagV := 1 - levenshteinDistance(source.tag, target.tag)
 	return tagV
 }
 
-func lexicalSimilarity(e edit) float64 {
+func lexicalSimilarity(e edit, data map[string]interface{}) float64 {
 	from, to := getWords(e)
 	source, target := sumWords(from), sumWords(to)
 	textV := 1 - levenshteinDistance(source.text, target.text)
@@ -613,7 +620,7 @@ func levenshteinDistance(s, t string) float64 {
 
 type edit interface {
 	fmt.Stringer
-	Score(fs []feature, ws []float64) float64
+	Score(fs []feature, ws []float64, data map[string]interface{}) float64
 	getProblemID() string
 }
 
@@ -642,11 +649,11 @@ func (e *sub) getProblemID() string {
 	return e.from[0].getProblemID()
 }
 
-func (e *ins) Score(fs []feature, ws []float64) float64 {
+func (e *ins) Score(fs []feature, ws []float64, data map[string]interface{}) float64 {
 	score := 0.0
 	for i, f := range fs {
 		// score += w[i] * f([]word{}, []word{e.w})
-		score += ws[i] * f(e)
+		score += ws[i] * f(e, data)
 	}
 	return score
 }
@@ -655,10 +662,10 @@ type del struct {
 	w word
 }
 
-func (e *del) Score(fs []feature, ws []float64) float64 {
+func (e *del) Score(fs []feature, ws []float64, data map[string]interface{}) float64 {
 	score := 0.0
 	for i, f := range fs {
-		score += ws[i] * f(e)
+		score += ws[i] * f(e, data)
 	}
 	return score
 }
@@ -668,10 +675,10 @@ type eq struct {
 	to   word
 }
 
-func (e *eq) Score(fs []feature, ws []float64) float64 {
+func (e *eq) Score(fs []feature, ws []float64, data map[string]interface{}) float64 {
 	score := 0.0
 	for i, f := range fs {
-		score += ws[i] * f(e)
+		score += ws[i] * f(e, data)
 	}
 	return score
 }
@@ -681,10 +688,10 @@ type sub struct {
 	to   []word
 }
 
-func (e *sub) Score(fs []feature, ws []float64) float64 {
+func (e *sub) Score(fs []feature, ws []float64, data map[string]interface{}) float64 {
 	score := 0.0
 	for i, f := range fs {
-		score += ws[i] * f(e)
+		score += ws[i] * f(e, data)
 	}
 	return score
 }
@@ -764,10 +771,10 @@ func equalSub(s, t *sub) bool {
 	return true
 }
 
-func (a *alignment) Score(fs []feature, ws []float64) float64 {
+func (a *alignment) Score(fs []feature, ws []float64, data map[string]interface{}) float64 {
 	score := 0.0
 	for _, e := range a.editMap {
-		score += e.Score(fs, ws)
+		score += e.Score(fs, ws, data)
 	}
 	return score
 }
@@ -827,7 +834,7 @@ func (a *alignment) String() string {
 	return sb.String()
 }
 
-func (a *alignment) align(ar aligner, fs []feature, ws []float64, subseqLen int) (*alignment, error) {
+func (a *alignment) align(ar aligner, fs []feature, ws []float64, subseqLen int, data map[string]interface{}) (*alignment, error) {
 	if len(fs) != len(ws) {
 		return nil, fmt.Errorf("features and weights len mismatch")
 	}
@@ -840,7 +847,7 @@ func (a *alignment) align(ar aligner, fs []feature, ws []float64, subseqLen int)
 
 	// start := time.Now()
 	for _, a := range F { // go routine
-		score := a.Score(fs, ws)
+		score := a.Score(fs, ws, data)
 		if score > maxScore {
 			maxScore = score
 			maxAlign = a
@@ -851,7 +858,7 @@ func (a *alignment) align(ar aligner, fs []feature, ws []float64, subseqLen int)
 	// for _, v := range scored[:min(len(scored), 10)] {
 	// 	fmt.Println(v.a, " - ", v.v)
 	// }
-	return maxAlign.align(ar, fs, ws, subseqLen)
+	return maxAlign.align(ar, fs, ws, subseqLen, data)
 }
 
 func learn(
@@ -860,6 +867,7 @@ func learn(
 	R0, r float64,
 	featureFunctions []feature,
 	alignAlg func(problem, []float64) *alignment,
+	data map[string]interface{},
 ) []float64 {
 	w := make(Vector, len(featureFunctions))
 	for i := range w {
@@ -877,7 +885,7 @@ func learn(
 			fmt.Println(j+1, "/", n, " -- of ", i+1, "/", N, " ", trainingProblems[j].ID)
 			ss := time.Now()
 			Ej := alignAlg(trainingProblems[j].p, w)
-			diff := Diff(phi(trainingProblems[j].a, featureFunctions), phi(Ej, featureFunctions)) // phi(Ej) - phi(Êj)
+			diff := Diff(phi(trainingProblems[j].a, featureFunctions, data), phi(Ej, featureFunctions, data)) // phi(Ej) - phi(Êj)
 			w = Sum(w, diff.Scale(R))
 			fmt.Println("finished in: ", time.Since(ss))
 		}
@@ -938,12 +946,12 @@ func shuffle(vals []goldStandard) {
 	}
 }
 
-func phi(a *alignment, fs []feature) Vector {
+func phi(a *alignment, fs []feature, data map[string]interface{}) Vector {
 	v := make(Vector, len(fs))
 	for i, f := range fs {
 		featureValue := 0.0
 		for _, e := range a.editMap {
-			featureValue += f(e)
+			featureValue += f(e, data)
 		}
 		v[i] = featureValue
 	}
