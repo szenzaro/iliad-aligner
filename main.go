@@ -851,7 +851,7 @@ func newFromEdits(es ...edit) *Alignment {
 	return &a
 }
 
-type aligner interface {
+type Aligner interface {
 	next(a *Alignment, subSeqLen int) []Alignment
 }
 
@@ -866,7 +866,7 @@ func (a *Alignment) String() string {
 	return sb.String()
 }
 
-func (a *Alignment) Align(ar aligner, fs []Feature, ws []float64, subseqLen int, data map[string]interface{}) (*Alignment, error) {
+func (a *Alignment) Align(ar Aligner, fs []Feature, ws []float64, subseqLen int, data map[string]interface{}) (*Alignment, error) {
 	if len(fs) != len(ws) {
 		return nil, fmt.Errorf("features and weights len mismatch")
 	}
