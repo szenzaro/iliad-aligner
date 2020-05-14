@@ -1,4 +1,4 @@
-package main
+package aligner
 
 import (
 	"reflect"
@@ -16,23 +16,23 @@ func NewGreekAligner() *greekAligner {
 func (*greekAligner) next(a *Alignment, subSeqLen int) []Alignment {
 	nextAlignments := []Alignment{}
 
-	dels := a.filter(reflect.TypeOf(&del{}))
+	dels := a.filter(reflect.TypeOf(&Del{}))
 	if len(dels) == 0 {
 		return nextAlignments
 	}
-	inss := a.filter(reflect.TypeOf(&ins{}))
+	inss := a.filter(reflect.TypeOf(&Ins{}))
 
 	// Add Eqs
 	for _, x := range dels {
-		x := x.(*del)
+		x := x.(*Del)
 		for _, y := range inss {
-			y := y.(*ins)
-			if x.w.Text != y.w.Text {
+			y := y.(*Ins)
+			if x.W.Text != y.W.Text {
 				continue
 			}
-			eq := eq{
-				from: x.w,
-				to:   y.w,
+			eq := Eq{
+				From: x.W,
+				To:   y.W,
 			}
 			newAlign := a.clone()
 			newAlign.remove(x, y)
@@ -45,26 +45,26 @@ func (*greekAligner) next(a *Alignment, subSeqLen int) []Alignment {
 		return nextAlignments
 	}
 
-	sort.SliceStable(dels, func(x, y int) bool { return dels[x].(*del).w.ID < dels[y].(*del).w.ID })
-	sort.SliceStable(inss, func(x, y int) bool { return inss[x].(*ins).w.ID < inss[y].(*ins).w.ID })
+	sort.SliceStable(dels, func(x, y int) bool { return dels[x].(*Del).W.ID < dels[y].(*Del).W.ID })
+	sort.SliceStable(inss, func(x, y int) bool { return inss[x].(*Ins).W.ID < inss[y].(*Ins).W.ID })
 
 	delWords := []Word{}
 	for _, x := range dels {
-		delWords = append(delWords, x.(*del).w)
+		delWords = append(delWords, x.(*Del).W)
 	}
 	subDels := limitedSubsequences(delWords, subSeqLen)
 
 	insWords := []Word{}
 	for _, x := range inss {
-		insWords = append(insWords, x.(*ins).w)
+		insWords = append(insWords, x.(*Ins).W)
 	}
 	subIns := limitedSubsequences(insWords, subSeqLen)
 
 	for _, d := range subDels {
 		for _, i := range subIns {
-			newSubEdit := sub{
-				from: d,
-				to:   i,
+			newSubEdit := Sub{
+				From: d,
+				To:   i,
 			}
 			newAlignment := a.clone()
 			removeEditWithWordsByID(&newAlignment, append(d, i...)...)
@@ -162,25 +162,25 @@ func limitedSubsequences(arr []Word, limit int) [][]Word {
 }
 
 func removeEditWithWordsByID(a *Alignment, ws ...Word) {
-	toremove := []edit{}
+	toremove := []Edit{}
 
 	for _, w := range ws {
 		for _, v := range a.editMap {
 			switch v.(type) {
-			case *ins:
-				if v.(*ins).w.ID == w.ID && v.(*ins).w == w {
+			case *Ins:
+				if v.(*Ins).W.ID == w.ID && v.(*Ins).W == w {
 					toremove = append(toremove, v)
 				}
-			case *del:
-				if v.(*del).w.ID == w.ID && v.(*del).w == w {
+			case *Del:
+				if v.(*Del).W.ID == w.ID && v.(*Del).W == w {
 					toremove = append(toremove, v)
 				}
-			case *eq:
-				if (v.(*eq).from == w || v.(*eq).to == w) && (v.(*eq).from.ID == w.ID || v.(*eq).to.ID == w.ID) {
+			case *Eq:
+				if (v.(*Eq).From == w || v.(*Eq).To == w) && (v.(*Eq).From.ID == w.ID || v.(*Eq).To.ID == w.ID) {
 					toremove = append(toremove, v)
 				}
-			case *sub:
-				for _, x := range append(v.(*sub).from[:], v.(*sub).to[:]...) {
+			case *Sub:
+				for _, x := range append(v.(*Sub).From[:], v.(*Sub).To[:]...) {
 					if x.ID == w.ID && x == w {
 						toremove = append(toremove, v)
 						break

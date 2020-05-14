@@ -1,4 +1,4 @@
-package main
+package aligner
 
 import "fmt"
 
@@ -39,18 +39,18 @@ func copyArray(a []string) []string {
 	return c
 }
 
-func (e *ins) ToJSONEdit() JSONEdit { return JSONEdit{Type: "ins", Target: []string{e.w.ID}} }
-func (e *del) ToJSONEdit() JSONEdit { return JSONEdit{Type: "del", Source: []string{e.w.ID}} }
-func (e *eq) ToJSONEdit() JSONEdit {
-	return JSONEdit{Type: "eq", Source: []string{fmt.Sprint(e.from.ID)}, Target: []string{fmt.Sprint(e.to.ID)}}
+func (e *Ins) ToJSONEdit() JSONEdit { return JSONEdit{Type: "ins", Target: []string{e.W.ID}} }
+func (e *Del) ToJSONEdit() JSONEdit { return JSONEdit{Type: "del", Source: []string{e.W.ID}} }
+func (e *Eq) ToJSONEdit() JSONEdit {
+	return JSONEdit{Type: "eq", Source: []string{fmt.Sprint(e.From.ID)}, Target: []string{fmt.Sprint(e.To.ID)}}
 }
-func (e *sub) ToJSONEdit() JSONEdit {
-	ss := make([]string, len(e.from))
-	for i, v := range e.from {
+func (e *Sub) ToJSONEdit() JSONEdit {
+	ss := make([]string, len(e.From))
+	for i, v := range e.From {
 		ss[i] = v.ID
 	}
-	tt := make([]string, len(e.to))
-	for i, v := range e.to {
+	tt := make([]string, len(e.To))
+	for i, v := range e.To {
 		tt[i] = v.ID
 	}
 	return JSONEdit{Type: "sub", Source: ss, Target: tt}
@@ -78,7 +78,7 @@ func (a *Alignment) ToJSONEdits() (map[string]JSONEdit, map[string]JSONEdit) {
 }
 
 func MergeAlignments(a, b *Alignment) *Alignment {
-	edits := make([]edit, len(a.editMap)+len(b.editMap))
+	edits := make([]Edit, len(a.editMap)+len(b.editMap))
 	i := 0
 	for _, v := range a.editMap {
 		edits[i] = v
