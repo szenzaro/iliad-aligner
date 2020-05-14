@@ -86,7 +86,7 @@ func main() {
 	ar := NewGreekAligner() // TODO load scholie
 	subseqLen := 5
 	alignAlg := func(p Problem, w []float64) *Alignment {
-		a, err := NewFromWordBags(p.from, p.to).Align(ar, ff, w, subseqLen, AdditionalData)
+		a, err := NewFromWordBags(p.From, p.To).Align(ar, ff, w, subseqLen, AdditionalData)
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -108,7 +108,7 @@ func main() {
 	start := time.Now()
 	for i, p := range testSet {
 		fmt.Println(p.ID, " ", i*100/len(testSet))
-		a := NewFromWordBags(p.p.from, p.p.to)
+		a := NewFromWordBags(p.p.From, p.p.To)
 		res, err := a.Align(ar, ff, w, subseqLen, AdditionalData)
 		if err != nil {
 			log.Fatalln(err)
@@ -303,15 +303,15 @@ func getProblems(words DB) map[string]goldStandard {
 			}
 			data[problemID] = goldStandard{
 				ID: problemID,
-				p:  Problem{from: map[string]Word{}, to: map[string]Word{}},
+				p:  Problem{From: map[string]Word{}, To: map[string]Word{}},
 				a:  newFromEdits(), // Empty alignment
 			}
 		}
 		if w.source == "HOM" {
-			data[problemID].p.from[w.ID] = w
+			data[problemID].p.From[w.ID] = w
 		}
 		if w.source == "PARA" {
-			data[problemID].p.to[w.ID] = w
+			data[problemID].p.To[w.ID] = w
 		}
 	}
 	return data
