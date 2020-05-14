@@ -36,7 +36,7 @@ func (*greekAligner) next(a *Alignment, subSeqLen int) []Alignment {
 			}
 			newAlign := a.clone()
 			newAlign.remove(x, y)
-			newAlign.add(&eq)
+			newAlign.Add(&eq)
 			nextAlignments = append(nextAlignments, newAlign)
 		}
 	}
@@ -68,7 +68,7 @@ func (*greekAligner) next(a *Alignment, subSeqLen int) []Alignment {
 			}
 			newAlignment := a.clone()
 			removeEditWithWordsByID(&newAlignment, append(d, i...)...)
-			newAlignment.add(&newSubEdit)
+			newAlignment.Add(&newSubEdit)
 
 			nextAlignments = append(nextAlignments, newAlignment)
 		}

@@ -9,7 +9,7 @@ type JSONEdit struct {
 	Target []string `json:"target,omitempty"`
 }
 
-// JSONEditer
+// JSONEditer TODO
 type JSONEditer interface {
 	ToJSONEdit() JSONEdit
 }
@@ -88,5 +88,5 @@ func MergeAlignments(a, b *Alignment) *Alignment {
 		edits[i] = v
 		i++
 	}
-	return newFromEdits(edits...)
+	return NewFromEdits(edits...)
 }

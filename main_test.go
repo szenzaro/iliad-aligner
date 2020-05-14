@@ -3,18 +3,9 @@ package main
 import (
 	"log"
 	"testing"
+
+	aligner "github.com/szenzaro/iliad-aligner/aligner"
 )
-
-func TestInclude(t *testing.T) {
-
-	w := Word{ID: "1", Text: "asd"}
-
-	a := newFromEdits(&ins{w: w})
-
-	if !a.includes(&ins{w: w}) {
-		t.Error("fail")
-	}
-}
 
 func TestEditAccuracy(t *testing.T) {
 	wordsDB, err := loadDB("data/G44_I_III_HomPara.xlsx")
@@ -35,8 +26,8 @@ func TestEditAccuracy(t *testing.T) {
 	}
 
 	tt := []struct {
-		a   *Alignment
-		b   *Alignment
+		a   *aligner.Alignment
+		b   *aligner.Alignment
 		acc float64
 	}{
 		// {a: newFromEdits(&ins{w: w}), b: newFromEdits(&ins{w: w2}), acc: 1.0},
@@ -48,7 +39,7 @@ func TestEditAccuracy(t *testing.T) {
 	}
 
 	for _, k := range tt {
-		res := k.a.editsAccuracy(k.b)
+		res := k.a.EditsAccuracy(k.b)
 		if res != k.acc {
 			t.Error("Expected ", k.acc, " got ", res)
 		}
