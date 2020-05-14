@@ -164,12 +164,12 @@ func (a *Alignment) editsAccuracy(std *Alignment) float64 {
 // Word contains the information about words
 type Word struct {
 	ID     string
-	text   string
-	lemma  string
-	tag    string
-	verse  string
-	chant  string
-	source string
+	Text   string
+	Lemma  string
+	Tag    string
+	Verse  string
+	Chant  string
+	Source string
 }
 
 // DB is the database of words
@@ -191,12 +191,12 @@ func loadDB(path string) (DB, error) {
 			}
 			w := Word{
 				ID:     getWordID(row.Cells[2].Value, row.Cells[0].Value), // Source.ID
-				verse:  row.Cells[10].Value,
-				chant:  row.Cells[3].Value,
-				text:   row.Cells[19].Value, // Normalized text
-				lemma:  row.Cells[20].Value,
-				tag:    row.Cells[21].Value,
-				source: row.Cells[2].Value,
+				Verse:  row.Cells[10].Value,
+				Chant:  row.Cells[3].Value,
+				Text:   row.Cells[19].Value, // Normalized text
+				Lemma:  row.Cells[20].Value,
+				Tag:    row.Cells[21].Value,
+				Source: row.Cells[2].Value,
 			}
 			data[w.ID] = w
 		}
@@ -223,12 +223,12 @@ func LoadDB(paths []string) (DB, error) {
 				}
 				w := Word{
 					ID:     getWordID(row.Cells[2].Value, row.Cells[0].Value), // Source.ID
-					verse:  row.Cells[10].Value,
-					chant:  row.Cells[3].Value,
-					text:   row.Cells[19].Value, // Normalized text
-					lemma:  row.Cells[20].Value,
-					tag:    row.Cells[21].Value,
-					source: row.Cells[2].Value,
+					Verse:  row.Cells[10].Value,
+					Chant:  row.Cells[3].Value,
+					Text:   row.Cells[19].Value, // Normalized text
+					Lemma:  row.Cells[20].Value,
+					Tag:    row.Cells[21].Value,
+					Source: row.Cells[2].Value,
 				}
 				data[w.ID] = w
 			}
@@ -252,7 +252,7 @@ func getWordID(source, id string) string {
 }
 
 func (w *Word) getProblemID() string {
-	return fmt.Sprintf("%s.%s", w.chant, w.verse)
+	return fmt.Sprintf("%s.%s", w.Chant, w.Verse)
 }
 
 func loadGoldStandard(path string, words DB) []goldStandard {
@@ -288,7 +288,7 @@ func loadGoldStandard(path string, words DB) []goldStandard {
 func canGetEdit(from, to []Word) bool {
 	isIns := len(from) == 0 && len(to) == 1
 	isDel := len(from) == 1 && len(to) == 0
-	isEq := len(from) == 1 && len(to) == 1 && from[0].text == to[0].text
+	isEq := len(from) == 1 && len(to) == 1 && from[0].Text == to[0].Text
 	notEmpty := len(from) > 0 && len(to) > 0
 	return isIns || isDel || isEq || notEmpty
 }
@@ -296,9 +296,9 @@ func canGetEdit(from, to []Word) bool {
 func getProblems(words DB) map[string]goldStandard {
 	data := map[string]goldStandard{}
 	for _, w := range words {
-		problemID := fmt.Sprintf("%s.%s", w.chant, w.verse)
+		problemID := fmt.Sprintf("%s.%s", w.Chant, w.Verse)
 		if _, ok := data[problemID]; !ok {
-			if problemID == "" || w.source == "" {
+			if problemID == "" || w.Source == "" {
 				panic("AA") // TODO
 			}
 			data[problemID] = goldStandard{
@@ -307,10 +307,10 @@ func getProblems(words DB) map[string]goldStandard {
 				a:  newFromEdits(), // Empty alignment
 			}
 		}
-		if w.source == "HOM" {
+		if w.Source == "HOM" {
 			data[problemID].p.From[w.ID] = w
 		}
-		if w.source == "PARA" {
+		if w.Source == "PARA" {
 			data[problemID].p.To[w.ID] = w
 		}
 	}
@@ -318,7 +318,7 @@ func getProblems(words DB) map[string]goldStandard {
 }
 
 func equal(v, w Word) bool {
-	return v.text == w.text
+	return v.Text == w.Text
 }
 
 func getID(v string, r *regexp.Regexp) string {
@@ -434,7 +434,7 @@ func ScholieDistance(e edit, sch map[string]interface{}) float64 {
 	source, target := sumWords(from), sumWords(to)
 	scholie := sch["ScholieDistance"].(map[string][]string)
 
-	entry := source.text
+	entry := source.Text
 	// for k := range scholie { // TODO
 	// 	if levenshteinDistance(k, source.text) <= 1 {
 	// 		entry = k
@@ -464,7 +464,7 @@ func ScholieDistance(e edit, sch map[string]interface{}) float64 {
 	mindist := math.Inf(0)
 	chosen := ""
 	for _, v := range scholie[entry] {
-		dist := levenshteinDistance(target.text, v)
+		dist := levenshteinDistance(target.Text, v)
 		if dist <= mindist {
 			mindist = dist
 			chosen = v
@@ -526,7 +526,7 @@ func VocDistance(e edit, data map[string]interface{}) float64 {
 	case *del:
 		return 0.0
 	case *eq:
-		if hasSameMeaning(voc[e.(*eq).from.lemma], voc[e.(*eq).to.lemma]) {
+		if hasSameMeaning(voc[e.(*eq).from.Lemma], voc[e.(*eq).to.Lemma]) {
 			return 1.0
 		}
 		return 0.0
@@ -535,7 +535,7 @@ func VocDistance(e edit, data map[string]interface{}) float64 {
 		from := e.(*sub).from
 		to := e.(*sub).to
 		if len(from) == 1 && len(to) == 1 {
-			if hasSameMeaning(voc[from[0].lemma], voc[to[0].lemma]) {
+			if hasSameMeaning(voc[from[0].Lemma], voc[to[0].Lemma]) {
 				return 1.0
 			}
 		}
@@ -548,7 +548,7 @@ func VocDistance(e edit, data map[string]interface{}) float64 {
 func LemmaDistance(e edit, data map[string]interface{}) float64 {
 	from, to := getWords(e)
 	source, target := sumWords(from), sumWords(to)
-	lemmaV := 1 - levenshteinDistance(source.lemma, target.lemma)
+	lemmaV := 1 - levenshteinDistance(source.Lemma, target.Lemma)
 	return lemmaV
 }
 
@@ -556,7 +556,7 @@ func LemmaDistance(e edit, data map[string]interface{}) float64 {
 func TagDistance(e edit, data map[string]interface{}) float64 {
 	from, to := getWords(e)
 	source, target := sumWords(from), sumWords(to)
-	tagV := 1 - levenshteinDistance(source.tag, target.tag)
+	tagV := 1 - levenshteinDistance(source.Tag, target.Tag)
 	return tagV
 }
 
@@ -564,7 +564,7 @@ func TagDistance(e edit, data map[string]interface{}) float64 {
 func LexicalSimilarity(e edit, data map[string]interface{}) float64 {
 	from, to := getWords(e)
 	source, target := sumWords(from), sumWords(to)
-	textV := 1 - levenshteinDistance(source.text, target.text)
+	textV := 1 - levenshteinDistance(source.Text, target.Text)
 	// lemmaV := 1 - levenshteinDistance(source.lemma, target.lemma)
 	// tagV := 1 - levenshteinDistance(source.tag, target.tag)
 
@@ -629,9 +629,9 @@ func sumWords(x []Word) Word {
 
 	for i := 0; i < len(x); i++ {
 		w := x[i]
-		text.WriteString(w.text)
-		lemma.WriteString(w.lemma)
-		tag.WriteString(w.tag)
+		text.WriteString(w.Text)
+		lemma.WriteString(w.Lemma)
+		tag.WriteString(w.Tag)
 	}
 
 	if len(x) == 0 {
@@ -640,12 +640,12 @@ func sumWords(x []Word) Word {
 
 	return Word{
 		ID:     x[0].ID,
-		chant:  x[0].chant,
-		verse:  x[0].verse,
-		source: x[0].source,
-		text:   text.String(),
-		lemma:  lemma.String(),
-		tag:    tag.String(),
+		Chant:  x[0].Chant,
+		Verse:  x[0].Verse,
+		Source: x[0].Source,
+		Text:   text.String(),
+		Lemma:  lemma.String(),
+		Tag:    tag.String(),
 	}
 }
 
@@ -743,23 +743,23 @@ func (e *sub) Score(fs []Feature, ws []float64, data map[string]interface{}) flo
 }
 
 func (e *ins) String() string {
-	return fmt.Sprintf("Ins(%s)", e.w.text)
+	return fmt.Sprintf("Ins(%s)", e.w.Text)
 }
 func (e *del) String() string {
-	return fmt.Sprintf("Del(%s)", e.w.text)
+	return fmt.Sprintf("Del(%s)", e.w.Text)
 }
 func (e *eq) String() string {
-	return fmt.Sprintf("Eq(%s , %s)", e.from.text, e.to.text)
+	return fmt.Sprintf("Eq(%s , %s)", e.from.Text, e.to.Text)
 }
 func (e *sub) String() string {
 	var sb strings.Builder
 	sb.WriteString("Sub(")
 	for _, w := range e.from {
-		sb.WriteString(fmt.Sprintf("%s ", w.text))
+		sb.WriteString(fmt.Sprintf("%s ", w.Text))
 	}
 	sb.WriteString(",")
 	for _, w := range e.to {
-		sb.WriteString(fmt.Sprintf(" %s", w.text))
+		sb.WriteString(fmt.Sprintf(" %s", w.Text))
 	}
 	sb.WriteString(" )")
 	return sb.String()
@@ -777,15 +777,15 @@ func (a *Alignment) includes(e edit) bool {
 		}
 		switch k.(type) {
 		case *ins:
-			if k.(*ins).w.text == e.(*ins).w.text {
+			if k.(*ins).w.Text == e.(*ins).w.Text {
 				return true
 			}
 		case *del:
-			if k.(*del).w.text == e.(*del).w.text {
+			if k.(*del).w.Text == e.(*del).w.Text {
 				return true
 			}
 		case *eq:
-			if k.(*eq).from.text == e.(*eq).from.text && k.(*eq).to.text == e.(*eq).to.text {
+			if k.(*eq).from.Text == e.(*eq).from.Text && k.(*eq).to.Text == e.(*eq).to.Text {
 				return true
 			}
 		case *sub:
@@ -966,11 +966,11 @@ type goldStandard struct {
 func (p Problem) String() string {
 	fromKeys := []string{}
 	toKeys := []string{}
-	for k := range p.from {
+	for k := range p.From {
 		fromKeys = append(fromKeys, k)
 	}
 
-	for k := range p.to {
+	for k := range p.To {
 		toKeys = append(toKeys, k)
 	}
 	sort.SliceStable(fromKeys, func(i, j int) bool { return sortID(i, j, fromKeys) })
@@ -979,12 +979,12 @@ func (p Problem) String() string {
 	var sb strings.Builder
 	sb.WriteString("[")
 	for _, k := range fromKeys {
-		sb.WriteString(p.from[k].text)
+		sb.WriteString(p.From[k].Text)
 		sb.WriteString(" ")
 	}
 	sb.WriteString(" -> ")
 	for _, k := range toKeys {
-		sb.WriteString(p.to[k].text)
+		sb.WriteString(p.To[k].Text)
 		sb.WriteString(" ")
 	}
 	sb.WriteString("]")
