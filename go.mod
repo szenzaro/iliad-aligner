@@ -1,4 +1,4 @@
-module szenzaro/iliad-aligner
+module github.com/szenzaro/iliad-aligner
 
 go 1.13
 
