@@ -7,11 +7,11 @@ import (
 
 func TestInclude(t *testing.T) {
 
-	w := word{ID: "1", text: "asd"}
+	w := Word{ID: "1", text: "asd"}
 
 	a := newFromEdits(&ins{w: w})
 
-	if !a.Includes(&ins{w: w}) {
+	if !a.includes(&ins{w: w}) {
 		t.Error("fail")
 	}
 }

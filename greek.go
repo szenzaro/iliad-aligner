@@ -47,13 +47,13 @@ func (*greekAligner) next(a *Alignment, subSeqLen int) []Alignment {
 	sort.SliceStable(dels, func(x, y int) bool { return dels[x].(*del).w.ID < dels[y].(*del).w.ID })
 	sort.SliceStable(inss, func(x, y int) bool { return inss[x].(*ins).w.ID < inss[y].(*ins).w.ID })
 
-	delWords := []word{}
+	delWords := []Word{}
 	for _, x := range dels {
 		delWords = append(delWords, x.(*del).w)
 	}
 	subDels := limitedSubsequences(delWords, subSeqLen)
 
-	insWords := []word{}
+	insWords := []Word{}
 	for _, x := range inss {
 		insWords = append(insWords, x.(*ins).w)
 	}
@@ -116,7 +116,7 @@ type Scholie map[string]map[string][]string
 
 var mutex = &sync.Mutex{}
 
-func limitedSubsequences(arr []word, limit int) [][]word {
+func limitedSubsequences(arr []Word, limit int) [][]Word {
 	comb := func(n, m int, emit func([]int)) {
 		s := make([]int, m)
 		last := m - 1
@@ -148,10 +148,10 @@ func limitedSubsequences(arr []word, limit int) [][]word {
 	}
 
 	indexes := combIndexes(len(arr), limit)
-	res := make([][]word, len(indexes))
+	res := make([][]Word, len(indexes))
 
 	for i, v := range indexes {
-		tmp := make([]word, len(v))
+		tmp := make([]Word, len(v))
 		for j, w := range v {
 			tmp[j] = arr[w]
 		}
@@ -160,7 +160,7 @@ func limitedSubsequences(arr []word, limit int) [][]word {
 	return res
 }
 
-func removeEditWithWordsByID(a *Alignment, ws ...word) {
+func removeEditWithWordsByID(a *Alignment, ws ...Word) {
 	toremove := []edit{}
 
 	for _, w := range ws {

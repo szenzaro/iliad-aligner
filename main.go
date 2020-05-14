@@ -75,7 +75,7 @@ func main() {
 	testSet := gs[splitIndex:]
 
 	ff := []Feature{
-		editType,
+		EditType,
 		LexicalSimilarity,
 		LemmaDistance,
 		TagDistance,
@@ -359,7 +359,7 @@ func getEditFromTu(from, to []Word) edit {
 // Feature represents a computable feature for the alignment
 type Feature func(edit, map[string]interface{}) float64 // func(sw, tw []word) float64
 
-func editType(e edit, data map[string]interface{}) float64 {
+func EditType(e edit, data map[string]interface{}) float64 {
 	switch e.(type) {
 	case *ins:
 		return 1.0
