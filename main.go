@@ -84,7 +84,7 @@ func main() {
 	}
 	ar := NewGreekAligner() // TODO load scholie
 	subseqLen := 5
-	alignAlg := func(p problem, w []float64) *Alignment {
+	alignAlg := func(p Problem, w []float64) *Alignment {
 		a, err := newFromWordBags(p.from, p.to).Align(ar, ff, w, subseqLen, AdditionalData)
 		if err != nil {
 			log.Fatalln(err)
@@ -298,7 +298,7 @@ func getProblems(words db) map[string]goldStandard {
 			}
 			data[problemID] = goldStandard{
 				ID: problemID,
-				p:  problem{from: map[string]word{}, to: map[string]word{}},
+				p:  Problem{from: map[string]word{}, to: map[string]word{}},
 				a:  newFromEdits(), // Empty alignment
 			}
 		}
@@ -898,7 +898,7 @@ func learn(
 	N, N0 int,
 	R0, r float64,
 	featureFunctions []Feature,
-	alignAlg func(problem, []float64) *Alignment,
+	alignAlg func(Problem, []float64) *Alignment,
 	data map[string]interface{},
 ) []float64 {
 	w := make(Vector, len(featureFunctions))
@@ -933,16 +933,16 @@ func learn(
 }
 
 type wordsBag = map[string]word
-type problem struct {
+type Problem struct {
 	from, to wordsBag
 }
 type goldStandard struct {
 	ID string
-	p  problem
+	p  Problem
 	a  *Alignment
 }
 
-func (p problem) String() string {
+func (p Problem) String() string {
 	fromKeys := []string{}
 	toKeys := []string{}
 	for k := range p.from {
