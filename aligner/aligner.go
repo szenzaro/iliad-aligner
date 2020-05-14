@@ -155,6 +155,7 @@ func LoadScholie(path string) (map[string][]string, error) {
 			sch[k] = v
 		}
 	}
+	AdditionalData["ScholieDistance"] = sch
 	return sch, nil
 }
 
@@ -230,6 +231,7 @@ func LoadVoc(path string) (map[string][]string, error) {
 		}
 		voc[row.Cells[0].Value] = append(voc[row.Cells[0].Value], getMeanings(row.Cells[1].Value)...)
 	}
+	AdditionalData["VocDistance"] = voc
 	return voc, nil
 }
 

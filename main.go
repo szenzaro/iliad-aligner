@@ -44,20 +44,16 @@ func main() {
 	aligner.AdditionalData = map[string]interface{}{}
 
 	fmt.Println("Loading vocabulary")
-	voc, err := aligner.LoadVoc(*vocPath)
+	_, err = aligner.LoadVoc(*vocPath)
 	if err != nil {
 		log.Fatalln(err)
 	}
-
-	aligner.AdditionalData["VocDistance"] = voc
 
 	fmt.Println("Loading scholie")
-	scholie, err := aligner.LoadScholie(*scholiePath)
+	_, err = aligner.LoadScholie(*scholiePath)
 	if err != nil {
 		log.Fatalln(err)
 	}
-
-	aligner.AdditionalData["ScholieDistance"] = scholie
 
 	fmt.Println("Loading words database")
 	wordsDB, err := loadDB(*wordsPath)
