@@ -24,6 +24,7 @@ import (
 	"github.com/texttheater/golang-levenshtein/levenshtein"
 )
 
+// AdditionalData store information useful when computing features
 var AdditionalData map[string]interface{}
 
 func main() {
@@ -74,7 +75,7 @@ func main() {
 	testSet := gs[splitIndex:]
 
 	ff := []Feature{
-		EditType,
+		editType,
 		LexicalSimilarity,
 		LemmaDistance,
 		TagDistance,
@@ -85,7 +86,7 @@ func main() {
 	ar := NewGreekAligner() // TODO load scholie
 	subseqLen := 5
 	alignAlg := func(p Problem, w []float64) *Alignment {
-		a, err := newFromWordBags(p.from, p.to).Align(ar, ff, w, subseqLen, AdditionalData)
+		a, err := NewFromWordBags(p.from, p.to).Align(ar, ff, w, subseqLen, AdditionalData)
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -107,7 +108,7 @@ func main() {
 	start := time.Now()
 	for i, p := range testSet {
 		fmt.Println(p.ID, " ", i*100/len(testSet))
-		a := newFromWordBags(p.p.from, p.p.to)
+		a := NewFromWordBags(p.p.from, p.p.to)
 		res, err := a.Align(ar, ff, w, subseqLen, AdditionalData)
 		if err != nil {
 			log.Fatalln(err)
@@ -141,7 +142,7 @@ func getFunctionName(i interface{}) string {
 }
 
 func scoreAccuracy(a, b *Alignment, fs []Feature, w []float64, data map[string]interface{}) float64 {
-	sa, sb := a.Score(fs, w, data), b.Score(fs, w, data)
+	sa, sb := a.score(fs, w, data), b.score(fs, w, data)
 	max := math.Max(sa, sb)
 	if max == 0.0 {
 		return 0.0
@@ -153,14 +154,15 @@ func scoreAccuracy(a, b *Alignment, fs []Feature, w []float64, data map[string]i
 func (a *Alignment) editsAccuracy(std *Alignment) float64 {
 	n := 0
 	for _, e := range std.editMap {
-		if a.Includes(e) {
+		if a.includes(e) {
 			n++
 		}
 	}
 	return float64(n) / float64(len(std.editMap))
 }
 
-type word struct {
+// Word contains the information about words
+type Word struct {
 	ID     string
 	text   string
 	lemma  string
@@ -169,10 +171,12 @@ type word struct {
 	chant  string
 	source string
 }
-type db = map[string]word
 
-func loadDB(path string) (db, error) {
-	data := db{}
+// DB is the database of words
+type DB = map[string]Word
+
+func loadDB(path string) (DB, error) {
+	data := DB{}
 	xlFile, err := xlsx.OpenFile(path)
 	if err != nil {
 		return nil, err
@@ -185,7 +189,7 @@ func loadDB(path string) (db, error) {
 			if row.Cells[0].Value == "2354" && row.Cells[2].Value == "PARA" {
 				panic("asdasd") // TODO
 			}
-			w := word{
+			w := Word{
 				ID:     getWordID(row.Cells[2].Value, row.Cells[0].Value), // Source.ID
 				verse:  row.Cells[10].Value,
 				chant:  row.Cells[3].Value,
@@ -200,8 +204,9 @@ func loadDB(path string) (db, error) {
 	return data, nil
 }
 
-func LoadDB(paths []string) (db, error) {
-	data := db{}
+// LoadDB retrieves all the words from the parameter paths
+func LoadDB(paths []string) (DB, error) {
+	data := DB{}
 
 	for _, path := range paths {
 		xlFile, err := xlsx.OpenFile(path)
@@ -216,7 +221,7 @@ func LoadDB(paths []string) (db, error) {
 				if row.Cells[0].Value == "2354" && row.Cells[2].Value == "PARA" {
 					panic("asdasd") // TODO
 				}
-				w := word{
+				w := Word{
 					ID:     getWordID(row.Cells[2].Value, row.Cells[0].Value), // Source.ID
 					verse:  row.Cells[10].Value,
 					chant:  row.Cells[3].Value,
@@ -246,11 +251,11 @@ func getWordID(source, id string) string {
 	return fmt.Sprintf("%s.%s", source, id)
 }
 
-func (w *word) getProblemID() string {
+func (w *Word) getProblemID() string {
 	return fmt.Sprintf("%s.%s", w.chant, w.verse)
 }
 
-func loadGoldStandard(path string, words db) []goldStandard {
+func loadGoldStandard(path string, words DB) []goldStandard {
 	problems := getProblems(words)
 	data, err := tmx.Read(path)
 	if err != nil {
@@ -280,7 +285,7 @@ func loadGoldStandard(path string, words db) []goldStandard {
 	return gs
 }
 
-func canGetEdit(from, to []word) bool {
+func canGetEdit(from, to []Word) bool {
 	isIns := len(from) == 0 && len(to) == 1
 	isDel := len(from) == 1 && len(to) == 0
 	isEq := len(from) == 1 && len(to) == 1 && from[0].text == to[0].text
@@ -288,7 +293,7 @@ func canGetEdit(from, to []word) bool {
 	return isIns || isDel || isEq || notEmpty
 }
 
-func getProblems(words db) map[string]goldStandard {
+func getProblems(words DB) map[string]goldStandard {
 	data := map[string]goldStandard{}
 	for _, w := range words {
 		problemID := fmt.Sprintf("%s.%s", w.chant, w.verse)
@@ -298,7 +303,7 @@ func getProblems(words db) map[string]goldStandard {
 			}
 			data[problemID] = goldStandard{
 				ID: problemID,
-				p:  Problem{from: map[string]word{}, to: map[string]word{}},
+				p:  Problem{from: map[string]Word{}, to: map[string]Word{}},
 				a:  newFromEdits(), // Empty alignment
 			}
 		}
@@ -312,7 +317,7 @@ func getProblems(words db) map[string]goldStandard {
 	return data
 }
 
-func equal(v, w word) bool {
+func equal(v, w Word) bool {
 	return v.text == w.text
 }
 
@@ -324,9 +329,9 @@ func getID(v string, r *regexp.Regexp) string {
 	return submatch[2]
 }
 
-func getWordsFromTuv(tuv tmx.Tuv, r *regexp.Regexp, source string, words db) []word {
+func getWordsFromTuv(tuv tmx.Tuv, r *regexp.Regexp, source string, words DB) []Word {
 	parts := strings.Split(tuv.Seg.Text, " ")
-	ws := []word{}
+	ws := []Word{}
 	for _, v := range parts {
 		if v != "" {
 			wID := getWordID(source, getID(v, r))
@@ -338,7 +343,7 @@ func getWordsFromTuv(tuv tmx.Tuv, r *regexp.Regexp, source string, words db) []w
 	return ws
 }
 
-func getEditFromTu(from, to []word) edit {
+func getEditFromTu(from, to []Word) edit {
 	switch l := len(from); {
 	case l == 1 && len(to) == 0:
 		return &del{w: from[0]}
@@ -351,9 +356,10 @@ func getEditFromTu(from, to []word) edit {
 	}
 }
 
+// Feature represents a computable feature for the alignment
 type Feature func(edit, map[string]interface{}) float64 // func(sw, tw []word) float64
 
-func EditType(e edit, data map[string]interface{}) float64 {
+func editType(e edit, data map[string]interface{}) float64 {
 	switch e.(type) {
 	case *ins:
 		return 1.0
@@ -368,6 +374,7 @@ func EditType(e edit, data map[string]interface{}) float64 {
 	}
 }
 
+// MaxDistance combines the distances of the other features
 func MaxDistance(e edit, data map[string]interface{}) float64 {
 	return multiMax(
 		LexicalSimilarity(e, data),
@@ -378,17 +385,17 @@ func MaxDistance(e edit, data map[string]interface{}) float64 {
 	)
 }
 
-func getWords(e edit) ([]word, []word) {
-	from := []word{}
-	to := []word{}
+func getWords(e edit) ([]Word, []Word) {
+	from := []Word{}
+	to := []Word{}
 	switch e.(type) {
 	case *ins:
-		to = []word{e.(*ins).w}
+		to = []Word{e.(*ins).w}
 	case *del:
-		from = []word{e.(*del).w}
+		from = []Word{e.(*del).w}
 	case *eq:
-		from = []word{e.(*eq).from}
-		to = []word{e.(*eq).to}
+		from = []Word{e.(*eq).from}
+		to = []Word{e.(*eq).to}
 	case *sub:
 		from = e.(*sub).from
 		to = e.(*sub).to
@@ -396,6 +403,7 @@ func getWords(e edit) ([]word, []word) {
 	return from, to
 }
 
+// LoadScholie gets the data from the available scholies
 func LoadScholie(path string) (map[string][]string, error) {
 	jsonFile, err := os.Open(path)
 	if err != nil {
@@ -420,6 +428,7 @@ func LoadScholie(path string) (map[string][]string, error) {
 	return sch, nil
 }
 
+// ScholieDistance computes the distance based onscholie
 func ScholieDistance(e edit, sch map[string]interface{}) float64 {
 	from, to := getWords(e)
 	source, target := sumWords(from), sumWords(to)
@@ -468,6 +477,7 @@ func ScholieDistance(e edit, sch map[string]interface{}) float64 {
 	return 1.0 - mindist //mindist/multiMax(float64(len(target.text)), float64(len(chosen)))
 }
 
+// LoadVoc loads the vocabulary data
 func LoadVoc(path string) (map[string][]string, error) {
 	xlFile, err := xlsx.OpenFile(path)
 	if err != nil {
@@ -507,6 +517,7 @@ func hasSameMeaning(a, b []string) bool {
 	return false
 }
 
+// VocDistance computes the distance based on vocabulary data
 func VocDistance(e edit, data map[string]interface{}) float64 {
 	voc := data["VocDistance"].(map[string][]string)
 	switch e.(type) {
@@ -533,6 +544,7 @@ func VocDistance(e edit, data map[string]interface{}) float64 {
 	return 0.0
 }
 
+// LemmaDistance computes the distance based on the word lemma
 func LemmaDistance(e edit, data map[string]interface{}) float64 {
 	from, to := getWords(e)
 	source, target := sumWords(from), sumWords(to)
@@ -540,6 +552,7 @@ func LemmaDistance(e edit, data map[string]interface{}) float64 {
 	return lemmaV
 }
 
+// TagDistance computes the distance based on the word tag
 func TagDistance(e edit, data map[string]interface{}) float64 {
 	from, to := getWords(e)
 	source, target := sumWords(from), sumWords(to)
@@ -547,6 +560,7 @@ func TagDistance(e edit, data map[string]interface{}) float64 {
 	return tagV
 }
 
+// LexicalSimilarity computes the distance based on the word text
 func LexicalSimilarity(e edit, data map[string]interface{}) float64 {
 	from, to := getWords(e)
 	source, target := sumWords(from), sumWords(to)
@@ -608,7 +622,7 @@ func normalizedDist(source, target []string) float64 {
 	return sumSubs + levenshteinDistance(concatSource, concatTarget)
 }
 
-func sumWords(x []word) word {
+func sumWords(x []Word) Word {
 	var text strings.Builder
 	var lemma strings.Builder
 	var tag strings.Builder
@@ -621,10 +635,10 @@ func sumWords(x []word) word {
 	}
 
 	if len(x) == 0 {
-		return word{}
+		return Word{}
 	}
 
-	return word{
+	return Word{
 		ID:     x[0].ID,
 		chant:  x[0].chant,
 		verse:  x[0].verse,
@@ -657,7 +671,7 @@ type edit interface {
 }
 
 type ins struct {
-	w word
+	w Word
 }
 
 func (e *ins) getProblemID() string {
@@ -691,7 +705,7 @@ func (e *ins) Score(fs []Feature, ws []float64, data map[string]interface{}) flo
 }
 
 type del struct {
-	w word
+	w Word
 }
 
 func (e *del) Score(fs []Feature, ws []float64, data map[string]interface{}) float64 {
@@ -703,8 +717,8 @@ func (e *del) Score(fs []Feature, ws []float64, data map[string]interface{}) flo
 }
 
 type eq struct {
-	from word
-	to   word
+	from Word
+	to   Word
 }
 
 func (e *eq) Score(fs []Feature, ws []float64, data map[string]interface{}) float64 {
@@ -716,8 +730,8 @@ func (e *eq) Score(fs []Feature, ws []float64, data map[string]interface{}) floa
 }
 
 type sub struct {
-	from []word
-	to   []word
+	from []Word
+	to   []Word
 }
 
 func (e *sub) Score(fs []Feature, ws []float64, data map[string]interface{}) float64 {
@@ -751,11 +765,12 @@ func (e *sub) String() string {
 	return sb.String()
 }
 
+// Alignment represents a words alignment
 type Alignment struct {
 	editMap map[edit]edit
 }
 
-func (a *Alignment) Includes(e edit) bool {
+func (a *Alignment) includes(e edit) bool {
 	for k := range a.editMap {
 		if reflect.TypeOf(e) != reflect.TypeOf(k) {
 			continue
@@ -803,7 +818,7 @@ func equalSub(s, t *sub) bool {
 	return true
 }
 
-func (a *Alignment) Score(fs []Feature, ws []float64, data map[string]interface{}) float64 {
+func (a *Alignment) score(fs []Feature, ws []float64, data map[string]interface{}) float64 {
 	score := 0.0
 	for _, e := range a.editMap {
 		score += e.Score(fs, ws, data)
@@ -817,7 +832,7 @@ func (a *Alignment) add(es ...edit) {
 	}
 }
 
-func new(src, target []word) *Alignment {
+func new(src, target []Word) *Alignment {
 	a := Alignment{
 		editMap: map[edit]edit{},
 	}
@@ -830,7 +845,8 @@ func new(src, target []word) *Alignment {
 	return &a
 }
 
-func newFromWordBags(from, to wordsBag) *Alignment {
+// NewFromWordBags creates an aligment from two word bags
+func NewFromWordBags(from, to WordsBag) *Alignment {
 	a := Alignment{
 		editMap: map[edit]edit{},
 	}
@@ -851,6 +867,7 @@ func newFromEdits(es ...edit) *Alignment {
 	return &a
 }
 
+// Aligner is the interface that computes the next step of an alignment
 type Aligner interface {
 	next(a *Alignment, subSeqLen int) []Alignment
 }
@@ -866,6 +883,7 @@ func (a *Alignment) String() string {
 	return sb.String()
 }
 
+// Align computes the alignement using an aligner
 func (a *Alignment) Align(ar Aligner, fs []Feature, ws []float64, subseqLen int, data map[string]interface{}) (*Alignment, error) {
 	if len(fs) != len(ws) {
 		return nil, fmt.Errorf("features and weights len mismatch")
@@ -879,7 +897,7 @@ func (a *Alignment) Align(ar Aligner, fs []Feature, ws []float64, subseqLen int,
 
 	// start := time.Now()
 	for _, a := range F { // go routine
-		score := a.Score(fs, ws, data)
+		score := a.score(fs, ws, data)
 		if score > maxScore {
 			maxScore = score
 			maxAlign = a
@@ -932,9 +950,12 @@ func learn(
 	return Avg(epochs[N0:])
 }
 
-type wordsBag = map[string]word
+// WordsBag represents a set of words
+type WordsBag = map[string]Word
+
+// Problem describes an alignment problem
 type Problem struct {
-	from, to wordsBag
+	from, to WordsBag
 }
 type goldStandard struct {
 	ID string
