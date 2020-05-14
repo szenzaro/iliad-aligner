@@ -24,7 +24,7 @@ import (
 	"github.com/texttheater/golang-levenshtein/levenshtein"
 )
 
-var additionalData map[string]interface{}
+var AdditionalData map[string]interface{}
 
 func main() {
 	f, err := os.Create("cpu_profile")
@@ -42,23 +42,23 @@ func main() {
 	flag.Parse()
 	// TODO: check flags for errors or empty strings
 
-	additionalData = map[string]interface{}{}
+	AdditionalData = map[string]interface{}{}
 
 	fmt.Println("Loading vocabulary")
-	voc, err := loadVoc(*vocPath)
+	voc, err := LoadVoc(*vocPath)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	additionalData["vocDistance"] = voc
+	AdditionalData["VocDistance"] = voc
 
 	fmt.Println("Loading scholie")
-	scholie, err := loadScholie(*scholiePath)
+	scholie, err := LoadScholie(*scholiePath)
 	if err != nil {
 		log.Fatalln(err)
 	}
 
-	additionalData["scholieDistance"] = scholie
+	AdditionalData["ScholieDistance"] = scholie
 
 	fmt.Println("Loading words database")
 	wordsDB, err := loadDB(*wordsPath)
@@ -74,18 +74,18 @@ func main() {
 	testSet := gs[splitIndex:]
 
 	ff := []feature{
-		// editType,
-		lexicalSimilarity,
-		lemmaDistance,
-		tagDistance,
-		// vocDistance,
-		// scholieDistance,
-		maxDistance,
+		EditType,
+		LexicalSimilarity,
+		LemmaDistance,
+		TagDistance,
+		VocDistance,
+		ScholieDistance,
+		MaxDistance,
 	}
 	ar := NewGreekAligner() // TODO load scholie
 	subseqLen := 5
-	alignAlg := func(p problem, w []float64) *alignment {
-		a, err := newFromWordBags(p.from, p.to).align(ar, ff, w, subseqLen, additionalData)
+	alignAlg := func(p problem, w []float64) *Alignment {
+		a, err := newFromWordBags(p.from, p.to).Align(ar, ff, w, subseqLen, AdditionalData)
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -95,7 +95,7 @@ func main() {
 	// w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg)
 	fmt.Println("Start learning process...")
 	startLearn := time.Now()
-	w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg, additionalData)
+	w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg, AdditionalData)
 	elapsedLearn := time.Since(startLearn)
 
 	// w := learn(trainingSet, 4, 1, 1.0, 0.8, ff, alignAlg)
@@ -108,11 +108,11 @@ func main() {
 	for i, p := range testSet {
 		fmt.Println(p.ID, " ", i*100/len(testSet))
 		a := newFromWordBags(p.p.from, p.p.to)
-		res, err := a.align(ar, ff, w, subseqLen, additionalData)
+		res, err := a.Align(ar, ff, w, subseqLen, AdditionalData)
 		if err != nil {
 			log.Fatalln(err)
 		}
-		acc := scoreAccuracy(p.a, res, ff, w, additionalData)
+		acc := scoreAccuracy(p.a, res, ff, w, AdditionalData)
 		totalAcc += acc
 		editAcc := res.editsAccuracy(p.a)
 		totalEditAcc += editAcc
@@ -140,7 +140,7 @@ func getFunctionName(i interface{}) string {
 	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
 }
 
-func scoreAccuracy(a, b *alignment, fs []feature, w []float64, data map[string]interface{}) float64 {
+func scoreAccuracy(a, b *Alignment, fs []feature, w []float64, data map[string]interface{}) float64 {
 	sa, sb := a.Score(fs, w, data), b.Score(fs, w, data)
 	max := math.Max(sa, sb)
 	if max == 0.0 {
@@ -150,7 +150,7 @@ func scoreAccuracy(a, b *alignment, fs []feature, w []float64, data map[string]i
 }
 
 // editsAccuracy checks the ratio of edits in a that are also in std (the "correct" version)
-func (a *alignment) editsAccuracy(std *alignment) float64 {
+func (a *Alignment) editsAccuracy(std *Alignment) float64 {
 	n := 0
 	for _, e := range std.editMap {
 		if a.Includes(e) {
@@ -195,6 +195,38 @@ func loadDB(path string) (db, error) {
 				source: row.Cells[2].Value,
 			}
 			data[w.ID] = w
+		}
+	}
+	return data, nil
+}
+
+func LoadDB(paths []string) (db, error) {
+	data := db{}
+
+	for _, path := range paths {
+		xlFile, err := xlsx.OpenFile(path)
+		if err != nil {
+			return nil, err
+		}
+		for _, sheet := range xlFile.Sheets {
+			for i, row := range sheet.Rows {
+				if i == 0 || row.Cells[0].Value == "" || row.Cells[10].Value == "" || row.Cells[4].Value != "" {
+					continue
+				}
+				if row.Cells[0].Value == "2354" && row.Cells[2].Value == "PARA" {
+					panic("asdasd") // TODO
+				}
+				w := word{
+					ID:     getWordID(row.Cells[2].Value, row.Cells[0].Value), // Source.ID
+					verse:  row.Cells[10].Value,
+					chant:  row.Cells[3].Value,
+					text:   row.Cells[19].Value, // Normalized text
+					lemma:  row.Cells[20].Value,
+					tag:    row.Cells[21].Value,
+					source: row.Cells[2].Value,
+				}
+				data[w.ID] = w
+			}
 		}
 	}
 	return data, nil
@@ -321,7 +353,7 @@ func getEditFromTu(from, to []word) edit {
 
 type feature func(edit, map[string]interface{}) float64 // func(sw, tw []word) float64
 
-func editType(e edit, data map[string]interface{}) float64 {
+func EditType(e edit, data map[string]interface{}) float64 {
 	switch e.(type) {
 	case *ins:
 		return 1.0
@@ -336,13 +368,13 @@ func editType(e edit, data map[string]interface{}) float64 {
 	}
 }
 
-func maxDistance(e edit, data map[string]interface{}) float64 {
+func MaxDistance(e edit, data map[string]interface{}) float64 {
 	return multiMax(
-		lexicalSimilarity(e, data),
-		lemmaDistance(e, data),
-		tagDistance(e, data),
-		vocDistance(e, data),
-		scholieDistance(e, data),
+		LexicalSimilarity(e, data),
+		LemmaDistance(e, data),
+		TagDistance(e, data),
+		VocDistance(e, data),
+		ScholieDistance(e, data),
 	)
 }
 
@@ -364,7 +396,7 @@ func getWords(e edit) ([]word, []word) {
 	return from, to
 }
 
-func loadScholie(path string) (map[string][]string, error) {
+func LoadScholie(path string) (map[string][]string, error) {
 	jsonFile, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -388,10 +420,10 @@ func loadScholie(path string) (map[string][]string, error) {
 	return sch, nil
 }
 
-func scholieDistance(e edit, sch map[string]interface{}) float64 {
+func ScholieDistance(e edit, sch map[string]interface{}) float64 {
 	from, to := getWords(e)
 	source, target := sumWords(from), sumWords(to)
-	scholie := sch["scholieDistance"].(map[string][]string)
+	scholie := sch["ScholieDistance"].(map[string][]string)
 
 	entry := source.text
 	// for k := range scholie { // TODO
@@ -436,7 +468,7 @@ func scholieDistance(e edit, sch map[string]interface{}) float64 {
 	return 1.0 - mindist //mindist/multiMax(float64(len(target.text)), float64(len(chosen)))
 }
 
-func loadVoc(path string) (map[string][]string, error) {
+func LoadVoc(path string) (map[string][]string, error) {
 	xlFile, err := xlsx.OpenFile(path)
 	if err != nil {
 		return nil, err
@@ -475,8 +507,8 @@ func hasSameMeaning(a, b []string) bool {
 	return false
 }
 
-func vocDistance(e edit, data map[string]interface{}) float64 {
-	voc := data["vocDistance"].(map[string][]string)
+func VocDistance(e edit, data map[string]interface{}) float64 {
+	voc := data["VocDistance"].(map[string][]string)
 	switch e.(type) {
 	case *ins:
 		return 0.0
@@ -501,21 +533,21 @@ func vocDistance(e edit, data map[string]interface{}) float64 {
 	return 0.0
 }
 
-func lemmaDistance(e edit, data map[string]interface{}) float64 {
+func LemmaDistance(e edit, data map[string]interface{}) float64 {
 	from, to := getWords(e)
 	source, target := sumWords(from), sumWords(to)
 	lemmaV := 1 - levenshteinDistance(source.lemma, target.lemma)
 	return lemmaV
 }
 
-func tagDistance(e edit, data map[string]interface{}) float64 {
+func TagDistance(e edit, data map[string]interface{}) float64 {
 	from, to := getWords(e)
 	source, target := sumWords(from), sumWords(to)
 	tagV := 1 - levenshteinDistance(source.tag, target.tag)
 	return tagV
 }
 
-func lexicalSimilarity(e edit, data map[string]interface{}) float64 {
+func LexicalSimilarity(e edit, data map[string]interface{}) float64 {
 	from, to := getWords(e)
 	source, target := sumWords(from), sumWords(to)
 	textV := 1 - levenshteinDistance(source.text, target.text)
@@ -719,11 +751,11 @@ func (e *sub) String() string {
 	return sb.String()
 }
 
-type alignment struct {
+type Alignment struct {
 	editMap map[edit]edit
 }
 
-func (a *alignment) Includes(e edit) bool {
+func (a *Alignment) Includes(e edit) bool {
 	for k := range a.editMap {
 		if reflect.TypeOf(e) != reflect.TypeOf(k) {
 			continue
@@ -771,7 +803,7 @@ func equalSub(s, t *sub) bool {
 	return true
 }
 
-func (a *alignment) Score(fs []feature, ws []float64, data map[string]interface{}) float64 {
+func (a *Alignment) Score(fs []feature, ws []float64, data map[string]interface{}) float64 {
 	score := 0.0
 	for _, e := range a.editMap {
 		score += e.Score(fs, ws, data)
@@ -779,14 +811,14 @@ func (a *alignment) Score(fs []feature, ws []float64, data map[string]interface{
 	return score
 }
 
-func (a *alignment) add(es ...edit) {
+func (a *Alignment) add(es ...edit) {
 	for _, v := range es {
 		a.editMap[v] = v
 	}
 }
 
-func new(src, target []word) *alignment {
-	a := alignment{
+func new(src, target []word) *Alignment {
+	a := Alignment{
 		editMap: map[edit]edit{},
 	}
 	for _, x := range src {
@@ -798,8 +830,8 @@ func new(src, target []word) *alignment {
 	return &a
 }
 
-func newFromWordBags(from, to wordsBag) *alignment {
-	a := alignment{
+func newFromWordBags(from, to wordsBag) *Alignment {
+	a := Alignment{
 		editMap: map[edit]edit{},
 	}
 	for _, x := range from {
@@ -811,8 +843,8 @@ func newFromWordBags(from, to wordsBag) *alignment {
 	return &a
 }
 
-func newFromEdits(es ...edit) *alignment {
-	a := alignment{
+func newFromEdits(es ...edit) *Alignment {
+	a := Alignment{
 		editMap: map[edit]edit{},
 	}
 	a.add(es...)
@@ -820,10 +852,10 @@ func newFromEdits(es ...edit) *alignment {
 }
 
 type aligner interface {
-	next(a *alignment, subSeqLen int) []alignment
+	next(a *Alignment, subSeqLen int) []Alignment
 }
 
-func (a *alignment) String() string {
+func (a *Alignment) String() string {
 	var sb strings.Builder
 	sb.WriteString("{ ")
 	for e := range a.editMap {
@@ -834,7 +866,7 @@ func (a *alignment) String() string {
 	return sb.String()
 }
 
-func (a *alignment) align(ar aligner, fs []feature, ws []float64, subseqLen int, data map[string]interface{}) (*alignment, error) {
+func (a *Alignment) Align(ar aligner, fs []feature, ws []float64, subseqLen int, data map[string]interface{}) (*Alignment, error) {
 	if len(fs) != len(ws) {
 		return nil, fmt.Errorf("features and weights len mismatch")
 	}
@@ -843,7 +875,7 @@ func (a *alignment) align(ar aligner, fs []feature, ws []float64, subseqLen int,
 		return a, nil
 	}
 	maxScore := math.Inf(-1)
-	var maxAlign alignment
+	var maxAlign Alignment
 
 	// start := time.Now()
 	for _, a := range F { // go routine
@@ -858,7 +890,7 @@ func (a *alignment) align(ar aligner, fs []feature, ws []float64, subseqLen int,
 	// for _, v := range scored[:min(len(scored), 10)] {
 	// 	fmt.Println(v.a, " - ", v.v)
 	// }
-	return maxAlign.align(ar, fs, ws, subseqLen, data)
+	return maxAlign.Align(ar, fs, ws, subseqLen, data)
 }
 
 func learn(
@@ -866,7 +898,7 @@ func learn(
 	N, N0 int,
 	R0, r float64,
 	featureFunctions []feature,
-	alignAlg func(problem, []float64) *alignment,
+	alignAlg func(problem, []float64) *Alignment,
 	data map[string]interface{},
 ) []float64 {
 	w := make(Vector, len(featureFunctions))
@@ -907,7 +939,7 @@ type problem struct {
 type goldStandard struct {
 	ID string
 	p  problem
-	a  *alignment
+	a  *Alignment
 }
 
 func (p problem) String() string {
@@ -946,7 +978,7 @@ func shuffle(vals []goldStandard) {
 	}
 }
 
-func phi(a *alignment, fs []feature, data map[string]interface{}) Vector {
+func phi(a *Alignment, fs []feature, data map[string]interface{}) Vector {
 	v := make(Vector, len(fs))
 	for i, f := range fs {
 		featureValue := 0.0
@@ -958,7 +990,7 @@ func phi(a *alignment, fs []feature, data map[string]interface{}) Vector {
 	return v
 }
 
-func (a *alignment) filter(t reflect.Type) []edit {
+func (a *Alignment) filter(t reflect.Type) []edit {
 	edits := []edit{}
 	for _, v := range a.editMap {
 		if reflect.TypeOf(v) == t {
@@ -968,8 +1000,8 @@ func (a *alignment) filter(t reflect.Type) []edit {
 	return edits
 }
 
-func (a alignment) clone() alignment {
-	newA := alignment{
+func (a Alignment) clone() Alignment {
+	newA := Alignment{
 		editMap: map[edit]edit{},
 	}
 	for k, v := range a.editMap {
@@ -978,7 +1010,7 @@ func (a alignment) clone() alignment {
 	return newA
 }
 
-func (a *alignment) remove(es ...edit) {
+func (a *Alignment) remove(es ...edit) {
 	for _, v := range es {
 		delete(a.editMap, v)
 	}

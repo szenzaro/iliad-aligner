@@ -35,8 +35,8 @@ func TestEditAccuracy(t *testing.T) {
 	}
 
 	tt := []struct {
-		a   *alignment
-		b   *alignment
+		a   *Alignment
+		b   *Alignment
 		acc float64
 	}{
 		// {a: newFromEdits(&ins{w: w}), b: newFromEdits(&ins{w: w2}), acc: 1.0},

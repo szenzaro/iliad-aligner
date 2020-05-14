@@ -12,8 +12,8 @@ func NewGreekAligner() *greekAligner {
 	return &greekAligner{}
 }
 
-func (*greekAligner) next(a *alignment, subSeqLen int) []alignment {
-	nextAlignments := []alignment{}
+func (*greekAligner) next(a *Alignment, subSeqLen int) []Alignment {
+	nextAlignments := []Alignment{}
 
 	dels := a.filter(reflect.TypeOf(&del{}))
 	if len(dels) == 0 {
@@ -160,7 +160,7 @@ func limitedSubsequences(arr []word, limit int) [][]word {
 	return res
 }
 
-func removeEditWithWordsByID(a *alignment, ws ...word) {
+func removeEditWithWordsByID(a *Alignment, ws ...word) {
 	toremove := []edit{}
 
 	for _, w := range ws {
