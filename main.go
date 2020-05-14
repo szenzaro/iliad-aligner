@@ -73,7 +73,7 @@ func main() {
 	trainingSet := gs[:splitIndex]
 	testSet := gs[splitIndex:]
 
-	ff := []feature{
+	ff := []Feature{
 		EditType,
 		LexicalSimilarity,
 		LemmaDistance,
@@ -140,7 +140,7 @@ func getFunctionName(i interface{}) string {
 	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
 }
 
-func scoreAccuracy(a, b *Alignment, fs []feature, w []float64, data map[string]interface{}) float64 {
+func scoreAccuracy(a, b *Alignment, fs []Feature, w []float64, data map[string]interface{}) float64 {
 	sa, sb := a.Score(fs, w, data), b.Score(fs, w, data)
 	max := math.Max(sa, sb)
 	if max == 0.0 {
@@ -351,7 +351,7 @@ func getEditFromTu(from, to []word) edit {
 	}
 }
 
-type feature func(edit, map[string]interface{}) float64 // func(sw, tw []word) float64
+type Feature func(edit, map[string]interface{}) float64 // func(sw, tw []word) float64
 
 func EditType(e edit, data map[string]interface{}) float64 {
 	switch e.(type) {
@@ -652,7 +652,7 @@ func levenshteinDistance(s, t string) float64 {
 
 type edit interface {
 	fmt.Stringer
-	Score(fs []feature, ws []float64, data map[string]interface{}) float64
+	Score(fs []Feature, ws []float64, data map[string]interface{}) float64
 	getProblemID() string
 }
 
@@ -681,7 +681,7 @@ func (e *sub) getProblemID() string {
 	return e.from[0].getProblemID()
 }
 
-func (e *ins) Score(fs []feature, ws []float64, data map[string]interface{}) float64 {
+func (e *ins) Score(fs []Feature, ws []float64, data map[string]interface{}) float64 {
 	score := 0.0
 	for i, f := range fs {
 		// score += w[i] * f([]word{}, []word{e.w})
@@ -694,7 +694,7 @@ type del struct {
 	w word
 }
 
-func (e *del) Score(fs []feature, ws []float64, data map[string]interface{}) float64 {
+func (e *del) Score(fs []Feature, ws []float64, data map[string]interface{}) float64 {
 	score := 0.0
 	for i, f := range fs {
 		score += ws[i] * f(e, data)
@@ -707,7 +707,7 @@ type eq struct {
 	to   word
 }
 
-func (e *eq) Score(fs []feature, ws []float64, data map[string]interface{}) float64 {
+func (e *eq) Score(fs []Feature, ws []float64, data map[string]interface{}) float64 {
 	score := 0.0
 	for i, f := range fs {
 		score += ws[i] * f(e, data)
@@ -720,7 +720,7 @@ type sub struct {
 	to   []word
 }
 
-func (e *sub) Score(fs []feature, ws []float64, data map[string]interface{}) float64 {
+func (e *sub) Score(fs []Feature, ws []float64, data map[string]interface{}) float64 {
 	score := 0.0
 	for i, f := range fs {
 		score += ws[i] * f(e, data)
@@ -803,7 +803,7 @@ func equalSub(s, t *sub) bool {
 	return true
 }
 
-func (a *Alignment) Score(fs []feature, ws []float64, data map[string]interface{}) float64 {
+func (a *Alignment) Score(fs []Feature, ws []float64, data map[string]interface{}) float64 {
 	score := 0.0
 	for _, e := range a.editMap {
 		score += e.Score(fs, ws, data)
@@ -866,7 +866,7 @@ func (a *Alignment) String() string {
 	return sb.String()
 }
 
-func (a *Alignment) Align(ar aligner, fs []feature, ws []float64, subseqLen int, data map[string]interface{}) (*Alignment, error) {
+func (a *Alignment) Align(ar aligner, fs []Feature, ws []float64, subseqLen int, data map[string]interface{}) (*Alignment, error) {
 	if len(fs) != len(ws) {
 		return nil, fmt.Errorf("features and weights len mismatch")
 	}
@@ -897,7 +897,7 @@ func learn(
 	trainingProblems []goldStandard,
 	N, N0 int,
 	R0, r float64,
-	featureFunctions []feature,
+	featureFunctions []Feature,
 	alignAlg func(problem, []float64) *Alignment,
 	data map[string]interface{},
 ) []float64 {
@@ -978,7 +978,7 @@ func shuffle(vals []goldStandard) {
 	}
 }
 
-func phi(a *Alignment, fs []feature, data map[string]interface{}) Vector {
+func phi(a *Alignment, fs []Feature, data map[string]interface{}) Vector {
 	v := make(Vector, len(fs))
 	for i, f := range fs {
 		featureValue := 0.0
