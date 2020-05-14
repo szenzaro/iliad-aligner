@@ -955,7 +955,7 @@ type WordsBag = map[string]Word
 
 // Problem describes an alignment problem
 type Problem struct {
-	from, to WordsBag
+	From, To WordsBag
 }
 type goldStandard struct {
 	ID string
