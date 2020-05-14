@@ -7,7 +7,7 @@ import (
 
 func TestInclude(t *testing.T) {
 
-	w := Word{ID: "1", text: "asd"}
+	w := Word{ID: "1", Text: "asd"}
 
 	a := newFromEdits(&ins{w: w})
 

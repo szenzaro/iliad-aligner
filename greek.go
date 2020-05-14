@@ -8,6 +8,7 @@ import (
 
 type greekAligner struct{}
 
+// NewGreekAligner creates a greek aligner
 func NewGreekAligner() *greekAligner {
 	return &greekAligner{}
 }
@@ -26,7 +27,7 @@ func (*greekAligner) next(a *Alignment, subSeqLen int) []Alignment {
 		x := x.(*del)
 		for _, y := range inss {
 			y := y.(*ins)
-			if x.w.text != y.w.text {
+			if x.w.Text != y.w.Text {
 				continue
 			}
 			eq := eq{
