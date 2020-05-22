@@ -11,15 +11,22 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
+	trie "github.com/derekparker/trie"
 	"github.com/szenzaro/iliad-aligner/vectors"
 	"github.com/tealeg/xlsx"
 	"github.com/texttheater/golang-levenshtein/levenshtein"
+	"golang.org/x/text/runes"
+	"golang.org/x/text/transform"
+	"golang.org/x/text/unicode/norm"
 )
 
 // AdditionalData store information useful when computing features
 var AdditionalData map[string]interface{}
+var scoreCache map[string]map[Edit]float64
+var scholiePrefixCache map[string][]string
 
 // Word contains the information about words
 type Word struct {
@@ -134,7 +141,7 @@ func getWords(e Edit) ([]Word, []Word) {
 }
 
 // LoadScholie gets the data from the available scholies
-func LoadScholie(path string) (map[string][]string, error) {
+func LoadScholie(path string) (*trie.Trie, error) {
 	jsonFile, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -144,68 +151,100 @@ func LoadScholie(path string) (map[string][]string, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	var data map[string]map[string][]string
 	if err := json.Unmarshal(d, &data); err != nil {
 		return nil, err
 	}
 
-	sch := map[string][]string{}
+	sch := trie.New()
 	for _, verse := range data {
 		for k, v := range verse {
-			sch[k] = v
+			sch.Add(k, v)
 		}
+	}
+	if AdditionalData == nil {
+		AdditionalData = map[string]interface{}{}
 	}
 	AdditionalData["ScholieDistance"] = sch
 	return sch, nil
 }
 
-// ScholieDistance computes the distance based onscholie
-func ScholieDistance(e Edit, sch map[string]interface{}) float64 {
-	from, to := getWords(e)
-	source, target := sumWords(from), sumWords(to)
-	scholie := sch["ScholieDistance"].(map[string][]string)
+func normalizeText(s string) string {
+	t2 := transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
+	conv, _, err := transform.String(t2, s)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	return conv
+}
 
-	entry := source.Text
-	// for k := range scholie { // TODO
-	// 	if levenshteinDistance(k, source.text) <= 1 {
-	// 		entry = k
-	// 		break
-	// 	}
-	// }
-	// if entry == "" {
-	// 	return 0.0
-	// }
-
-	// foundH := ""
-	// for k := range scholie {
-	// 	if levenshteinDistance(k, entry) < 3 {
-	// 		foundH = k
-	// 		break
-	// 	}
-	// }
-
-	// if foundH == "" {
-	// 	return 0.0
-	// }
-
-	if len(scholie[entry]) == 0 {
-		return 0.0
+func getScholieEntries(entry string, sch map[string]interface{}) []string {
+	if scholiePrefixCache == nil {
+		scholiePrefixCache = map[string][]string{}
+	}
+	entries := []string{}
+	scholie := sch["ScholieDistance"].(*trie.Trie)
+	scholieEntries := []string{}
+	if v, ok := scholiePrefixCache[entry]; ok {
+		scholieEntries = v
+	} else {
+		scholieEntries = scholie.PrefixSearch(entry)
 	}
 
-	mindist := math.Inf(0)
-	chosen := ""
-	for _, v := range scholie[entry] {
-		dist := levenshteinDistance(target.Text, v)
-		if dist <= mindist {
-			mindist = dist
-			chosen = v
+	if entry == "" || len(scholieEntries) == 0 {
+		scholiePrefixCache[entry] = entries
+		return entries
+	}
+
+	for _, v := range scholieEntries {
+		if x, ok := scholie.Find(v); ok {
+			entries = append(entries, x.Meta().([]string)...)
 		}
 	}
-	if chosen == "" {
-		return 0.0
+	scholiePrefixCache[entry] = entries
+	return entries
+}
+
+// ScholieDistance computes the distance based onscholie
+func ScholieDistance(e Edit, sch map[string]interface{}) float64 {
+	initCache("ScholieDistance")
+
+	switch e.(type) {
+	case *Ins:
+		scoreCache["ScholieDistance"][e] = 1.0
+		return 1.0
+	case *Del:
+		scoreCache["ScholieDistance"][e] = 1.0
+		return 1.0
 	}
-	// a := mindist / multiMax(float64(len(target.text)), float64(len(chosen)))
-	return 1.0 - mindist //mindist/multiMax(float64(len(target.text)), float64(len(chosen)))
+	// if s, ok := scoreCache["ScholieDistance"][e]; ok {
+	// 	return s
+	// }
+
+	from, to := getWords(e)
+	source, target := sumWords(from), sumWords(to)
+	entry := normalizeText(source.Text)
+
+	score := math.Inf(0)
+	targetText := normalizeText(target.Text)
+	for _, t := range getScholieEntries(entry, sch) {
+		dist := levenshteinDistance(targetText, t) / multiMax(float64(len(t)), float64(len(targetText)))
+		if dist <= score {
+			score = dist
+		}
+		if dist == 0 {
+			break
+		}
+	}
+
+	if score == math.Inf(0) {
+		score = 1.0
+	}
+
+	res := 1.0 - score
+	scoreCache["ScholieDistance"][e] = res
+	return res
 }
 
 // LoadVoc loads the vocabulary data
@@ -231,6 +270,9 @@ func LoadVoc(path string) (map[string][]string, error) {
 		}
 		voc[row.Cells[0].Value] = append(voc[row.Cells[0].Value], getMeanings(row.Cells[1].Value)...)
 	}
+	if AdditionalData == nil {
+		AdditionalData = map[string]interface{}{}
+	}
 	AdditionalData["VocDistance"] = voc
 	return voc, nil
 }
@@ -249,58 +291,74 @@ func hasSameMeaning(a, b []string) bool {
 	return false
 }
 
+func initCache(funcName string) {
+	if scoreCache == nil {
+		scoreCache = map[string]map[Edit]float64{}
+	}
+	if scoreCache[funcName] == nil {
+		scoreCache[funcName] = map[Edit]float64{}
+	}
+}
+
 // VocDistance computes the distance based on vocabulary data
 func VocDistance(e Edit, data map[string]interface{}) float64 {
+	initCache("VocDistance")
+
+	if v, ok := scoreCache["VocDistance"][e]; ok {
+		return v
+	}
+
 	voc := data["VocDistance"].(map[string][]string)
+	res := 0.0
 	switch e.(type) {
-	case *Ins:
-		return 0.0
-	case *Del:
-		return 0.0
 	case *Eq:
 		if hasSameMeaning(voc[e.(*Eq).From.Lemma], voc[e.(*Eq).To.Lemma]) {
-			return 1.0
+			res = 1.0
 		}
-		return 0.0
 	case *Sub:
 		// TODO expand for multiple words subs
 		from := e.(*Sub).From
 		to := e.(*Sub).To
 		if len(from) == 1 && len(to) == 1 {
 			if hasSameMeaning(voc[from[0].Lemma], voc[to[0].Lemma]) {
-				return 1.0
+				res = 1.0
 			}
 		}
-		return 0.0
 	}
-	return 0.0
+	scoreCache["VocDistance"][e] = res
+	return res
 }
 
 // LemmaDistance computes the distance based on the word lemma
 func LemmaDistance(e Edit, data map[string]interface{}) float64 {
-	from, to := getWords(e)
-	source, target := sumWords(from), sumWords(to)
-	lemmaV := 1 - levenshteinDistance(source.Lemma, target.Lemma)
-	return lemmaV
+	return distanceOnField(e, data, "LemmaDistance", "Lemma")
 }
 
 // TagDistance computes the distance based on the word tag
 func TagDistance(e Edit, data map[string]interface{}) float64 {
-	from, to := getWords(e)
-	source, target := sumWords(from), sumWords(to)
-	tagV := 1 - levenshteinDistance(source.Tag, target.Tag)
-	return tagV
+	return distanceOnField(e, data, "TagDistance", "Tag")
 }
 
 // LexicalSimilarity computes the distance based on the word text
 func LexicalSimilarity(e Edit, data map[string]interface{}) float64 {
+	return distanceOnField(e, data, "LexicalSimilarity", "Text")
+}
+
+func distanceOnField(e Edit, data map[string]interface{}, funcName string, fieldName string) float64 {
+	initCache(funcName)
+	if v, ok := scoreCache[funcName][e]; ok {
+		return v
+	}
+
 	from, to := getWords(e)
 	source, target := sumWords(from), sumWords(to)
-	textV := 1 - levenshteinDistance(source.Text, target.Text)
-	// lemmaV := 1 - levenshteinDistance(source.lemma, target.lemma)
-	// tagV := 1 - levenshteinDistance(source.tag, target.tag)
+	sourceValue := reflect.ValueOf(source).FieldByName(fieldName).String()
+	targetValue := reflect.ValueOf(target).FieldByName(fieldName).String()
 
-	return multiMax(textV) //, lemmaV, tagV)
+	dist := 1 - levenshteinDistance(sourceValue, targetValue)/multiMax(float64(len(sourceValue)), float64(len(targetValue)))
+
+	scoreCache[funcName][e] = dist
+	return dist
 }
 
 func multiMin(vs ...float64) float64 {
@@ -745,4 +803,58 @@ func (a *Alignment) remove(es ...Edit) {
 	for _, v := range es {
 		delete(a.editMap, v)
 	}
+}
+
+// LoadScholieDict gets the data from the available scholies
+func LoadScholieDict(path string) (map[string][]string, error) {
+	jsonFile, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer jsonFile.Close()
+	d, err := ioutil.ReadAll(jsonFile)
+	if err != nil {
+		return nil, err
+	}
+	var data map[string]map[string][]string
+	if err := json.Unmarshal(d, &data); err != nil {
+		return nil, err
+	}
+
+	sch := map[string][]string{}
+	for _, verse := range data {
+		for k, v := range verse {
+			sch[k] = v
+		}
+	}
+	AdditionalData["ScholieDistanceExact"] = sch
+	return sch, nil
+}
+
+// ScholieDistanceExact computes the distance based onscholie
+func ScholieDistanceExact(e Edit, sch map[string]interface{}) float64 {
+	from, to := getWords(e)
+	source, target := sumWords(from), sumWords(to)
+	scholie := sch["ScholieDistanceExact"].(map[string][]string)
+
+	entry := source.Text
+
+	if len(scholie[entry]) == 0 {
+		return 0.0
+	}
+
+	mindist := math.Inf(0)
+	chosen := ""
+	for _, v := range scholie[entry] {
+		dist := levenshteinDistance(target.Text, v) / multiMax(float64(len(v)), float64(len(target.Text)))
+		if dist <= mindist {
+			mindist = dist
+			chosen = v
+		}
+	}
+	if chosen == "" {
+		return 0.0
+	}
+	// a := mindist / multiMax(float64(len(target.text)), float64(len(chosen)))
+	return 1.0 - mindist //mindist/multiMax(float64(len(target.text)), float64(len(chosen)))
 }
