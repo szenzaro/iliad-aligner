@@ -248,7 +248,7 @@ func ScholieDistance(e Edit, sch map[string]interface{}) float64 {
 }
 
 // LoadVoc loads the vocabulary data
-func LoadVoc(path string) (map[string][]string, error) {
+func LoadVoc(path string, dictName string) (map[string][]string, error) {
 	xlFile, err := xlsx.OpenFile(path)
 	if err != nil {
 		return nil, err
@@ -273,7 +273,7 @@ func LoadVoc(path string) (map[string][]string, error) {
 	if AdditionalData == nil {
 		AdditionalData = map[string]interface{}{}
 	}
-	AdditionalData["VocDistance"] = voc
+	AdditionalData[dictName] = voc
 	return voc, nil
 }
 
@@ -302,13 +302,22 @@ func initCache(funcName string) {
 
 // VocDistance computes the distance based on vocabulary data
 func VocDistance(e Edit, data map[string]interface{}) float64 {
-	initCache("VocDistance")
+	return distOnVocabulary(e, data, "VocDistance")
+}
 
-	if v, ok := scoreCache["VocDistance"][e]; ok {
+// EqEquivTermDistance computes the distance based on greek equivalent terms
+func EqEquivTermDistance(e Edit, data map[string]interface{}) float64 {
+	return distOnVocabulary(e, data, "EquivTermDistance")
+}
+
+func distOnVocabulary(e Edit, data map[string]interface{}, vocName string) float64 {
+	initCache(vocName)
+
+	if v, ok := scoreCache[vocName][e]; ok {
 		return v
 	}
 
-	voc := data["VocDistance"].(map[string][]string)
+	voc := data[vocName].(map[string][]string)
 	res := 0.0
 	switch e.(type) {
 	case *Eq:
@@ -325,7 +334,7 @@ func VocDistance(e Edit, data map[string]interface{}) float64 {
 			}
 		}
 	}
-	scoreCache["VocDistance"][e] = res
+	scoreCache[vocName][e] = res
 	return res
 }
 
