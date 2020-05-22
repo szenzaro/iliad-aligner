@@ -119,6 +119,7 @@ func MaxDistance(e Edit, data map[string]interface{}) float64 {
 		TagDistance(e, data),
 		VocDistance(e, data),
 		ScholieDistance(e, data),
+		EqEquivTermDistance(e, data),
 	)
 }
 

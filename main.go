@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"reflect"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pkg/profile"
 	tmx "github.com/szenzaro/go-tmx"
 	aligner "github.com/szenzaro/iliad-aligner/aligner"
 	vectors "github.com/szenzaro/iliad-aligner/vectors"
@@ -26,6 +28,8 @@ type goldStandard struct {
 }
 
 func main() {
+	defer profile.Start().Stop()
+
 	f, err := os.Create("cpu_profile")
 	if err != nil {
 		log.Fatal(err)
@@ -33,10 +37,12 @@ func main() {
 	pprof.StartCPUProfile(f)
 	defer pprof.StopCPUProfile()
 
-	wordsPath := flag.String("w", "", "path to the xlsx file containing all the words")
-	tsPath := flag.String("ts", "", "path to the tmx file containing the alignment for the words in the DB")
+	wordsPath := flag.String("w", "data/G44_I_III_HomPara.xlsx", "path to the xlsx file containing all the words")
+	tsPath := flag.String("ts", "data/G44_ALI.tmx", "path to the tmx file containing the alignment for the words in the DB")
 	vocPath := flag.String("voc", "data/Vocabulaire_Genavensis.xlsx", "path to the vocabulary xlsx file")
+	equivPath := flag.String("equiv", "data/Lexique Homer termes Equivalents 1-3.xlsx", "path to the equivalent terms xlsx file")
 	scholiePath := flag.String("sch", "data/scholied.json", "path to the scholie JSON file")
+	logPath := flag.String("log", "test.log", "path to log file")
 
 	flag.Parse()
 	// TODO: check flags for errors or empty strings
@@ -44,7 +50,13 @@ func main() {
 	aligner.AdditionalData = map[string]interface{}{}
 
 	fmt.Println("Loading vocabulary")
-	_, err = aligner.LoadVoc(*vocPath)
+	_, err = aligner.LoadVoc(*vocPath, "VocDistance")
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	fmt.Println("Loading equivalence terms")
+	_, err = aligner.LoadVoc(*equivPath, "EquivTermDistance")
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -63,72 +75,164 @@ func main() {
 	fmt.Println("Loading gold standard")
 	gs := loadGoldStandard(*tsPath, wordsDB)
 
-	splitIndex := 3 * len(gs) / 10 // about 30%
+	// splitIndex := 3 * len(gs) / 10 // about 30%
+	splitIndex := 1 * len(gs) / 100 // about 30%
 	// splitIndex := 25 * len(gs) / 100 // about 25%
 	trainingSet := gs[:splitIndex]
 	testSet := gs[splitIndex:]
 
-	ff := []aligner.Feature{
+	features := []aligner.Feature{
 		aligner.EditType,
 		aligner.LexicalSimilarity,
 		aligner.LemmaDistance,
 		aligner.TagDistance,
 		aligner.VocDistance,
 		aligner.ScholieDistance,
+		aligner.EqEquivTermDistance,
 		aligner.MaxDistance,
 	}
-	ar := aligner.NewGreekAligner() // TODO load scholie
-	subseqLen := 5
-	alignAlg := func(p aligner.Problem, w []float64) *aligner.Alignment {
-		a, err := aligner.NewFromWordBags(p.From, p.To).Align(ar, ff, w, subseqLen, aligner.AdditionalData)
-		if err != nil {
-			log.Fatalln(err)
+
+	tests := getTests(features)
+
+	createLogFile(*logPath)
+	for idx, ff := range tests {
+		ar := aligner.NewGreekAligner() // TODO load scholie
+		subseqLen := 5
+		alignAlg := func(p aligner.Problem, w []float64) *aligner.Alignment {
+			a, err := aligner.NewFromWordBags(p.From, p.To).Align(ar, ff, w, subseqLen, aligner.AdditionalData)
+			if err != nil {
+				log.Fatalln(err)
+			}
+			return a
 		}
-		return a
-	}
-	// w:=  []float64{0.9668163361323169, 0.14577072520289328}
-	// w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg)
-	fmt.Println("Start learning process...")
-	startLearn := time.Now()
-	w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg, aligner.AdditionalData)
-	elapsedLearn := time.Since(startLearn)
 
-	// w := learn(trainingSet, 4, 1, 1.0, 0.8, ff, alignAlg)
+		// w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg)
+		fmt.Println("Start learning process...")
+		startLearn := time.Now()
+		totalTime := time.Now()
+		// w := []float64{0.2956361042981355, 0.060325626401096885, 0.033855873309357465, 0.024419617049442562, 0.8058173377380647, 0.004187020307669374, 0.1931506936628718}
+		w := learn(trainingSet, 2, 1, 1.0, 0.8, ff, alignAlg, aligner.AdditionalData)
+		//w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg, aligner.AdditionalData)
+		elapsedLearn := time.Since(startLearn)
 
-	fmt.Println("Align verses: ")
-
-	totalAcc := 0.0
-	totalEditAcc := 0.0
-	start := time.Now()
-	for i, p := range testSet {
-		fmt.Println(p.ID, " ", i*100/len(testSet))
-		a := aligner.NewFromWordBags(p.p.From, p.p.To)
-		res, err := a.Align(ar, ff, w, subseqLen, aligner.AdditionalData)
-		if err != nil {
-			log.Fatalln(err)
+		totalAcc := 0.0
+		totalEditAcc := 0.0
+		start := time.Now()
+		for i, p := range testSet[:3] {
+			fmt.Println(p.ID, " ", i*100/len(testSet))
+			a := aligner.NewFromWordBags(p.p.From, p.p.To)
+			res, err := a.Align(ar, ff, w, subseqLen, aligner.AdditionalData)
+			if err != nil {
+				log.Fatalln(err)
+			}
+			acc := aligner.ScoreAccuracy(p.a, res, ff, w, aligner.AdditionalData)
+			totalAcc += acc
+			editAcc := res.EditsAccuracy(p.a)
+			totalEditAcc += editAcc
+			fmt.Println()
+			fmt.Println("Expected: ", p.a)
+			fmt.Println("Got: ", res)
+			fmt.Println("with accuracy ", acc)
+			fmt.Println("with edit accuracy ", editAcc)
+			fmt.Println()
 		}
-		acc := aligner.ScoreAccuracy(p.a, res, ff, w, aligner.AdditionalData)
-		totalAcc += acc
-		editAcc := res.EditsAccuracy(p.a)
-		totalEditAcc += editAcc
-		fmt.Println()
-		fmt.Println("Expected: ", p.a)
-		fmt.Println("Got: ", res)
-		fmt.Println("with accuracy ", acc)
-		fmt.Println("with edit accuracy ", editAcc)
-		fmt.Println()
+		elapsed := time.Since(start)
+		elapedTotal := time.Since(totalTime)
+		fmt.Println("Learned w: ", w)
+		fmt.Println("Split percentage: ", float64(splitIndex)/float64(len(gs)))
+		fmt.Println("Learn time needed: ", elapsedLearn)
+		fmt.Println("Alignment time needed: ", elapsed)
+		fmt.Println("With functions:")
+		for _, f := range ff {
+			fmt.Println("\t- ", getFunctionName(f))
+		}
+		totalAccuracy := totalAcc / float64(len(testSet))
+		fmt.Println("Total accuracy: ", totalAccuracy)
+		totalEditAccuracy := totalEditAcc / float64(len(testSet))
+		fmt.Println("Total edit accuracy: ", totalEditAccuracy)
+
+		appendResult(*logPath, idx, ff, w, elapsedLearn, elapsed, elapedTotal, totalAccuracy, totalEditAccuracy)
 	}
-	elapsed := time.Since(start)
-	fmt.Println("Learned w: ", w)
-	fmt.Println("Split percentage: ", float64(splitIndex)/float64(len(gs)))
-	fmt.Println("Learn time needed: ", elapsedLearn)
-	fmt.Println("Alignment time needed: ", elapsed)
-	fmt.Println("With functions:")
+
+}
+
+func getFeatureNames(ff []aligner.Feature) []string {
+	d := []string{}
 	for _, f := range ff {
-		fmt.Println("\t- ", getFunctionName(f))
+		n := strings.Split(getFunctionName(f), ".")
+		d = append(d, n[len(n)-1])
 	}
-	fmt.Println("Total accuracy: ", totalAcc/float64(len(testSet)))
-	fmt.Println("Total edit accuracy: ", totalEditAcc/float64(len(testSet)))
+	return d
+}
+
+func createLogFile(path string) {
+	fmt.Println("Creating log file ", path)
+	file, err := os.Create(path)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	defer file.Close()
+
+	header := fmt.Sprintln("Test Number\tFeatures\tEdit Accuracy\tScore Accuracy\tTotal Time\tLearn Time\tAlignment Time\tWeights")
+	file.WriteString(header)
+
+	fmt.Println("Log file Created Successfully", path)
+}
+
+func appendResult(path string, idx int, ff []aligner.Feature, w []float64, learnTime, alignmentTime, totalTime time.Duration, scoreAccuracy, editAccuracy float64) {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Println(err)
+	}
+	defer f.Close()
+
+	names := getFeatureNames(ff)
+
+	text := fmt.Sprintln(
+		idx, "\t",
+		names, "\t",
+		editAccuracy, "\t",
+		scoreAccuracy, "\t",
+		totalTime, "\t",
+		learnTime, "\t",
+		alignmentTime, "\t",
+		w,
+	)
+
+	if _, err := f.WriteString(text); err != nil {
+		log.Println(err)
+	}
+}
+
+func getTests(ff []aligner.Feature) [][]aligner.Feature {
+	tt := [][]aligner.Feature{}
+
+	for _, v := range powerSet(ff) {
+		if len(v) == 0 {
+			continue
+		}
+		tt = append(tt, v)
+	}
+	return tt
+}
+
+func powerSet(original []aligner.Feature) [][]aligner.Feature {
+	powerSetSize := int(math.Pow(2, float64(len(original))))
+	result := make([][]aligner.Feature, 0, powerSetSize)
+
+	var index int
+	for index < powerSetSize {
+		var subSet []aligner.Feature
+
+		for j, elem := range original {
+			if index&(1<<uint(j)) > 0 {
+				subSet = append(subSet, elem)
+			}
+		}
+		result = append(result, subSet)
+		index++
+	}
+	return result
 }
 
 func getFunctionName(i interface{}) string {
