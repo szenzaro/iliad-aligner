@@ -151,7 +151,7 @@ func main() {
 		totalEditAccuracy := totalEditAcc / float64(len(testSet))
 		fmt.Println("Total edit accuracy: ", totalEditAccuracy)
 
-		appendResult(*logPath, idx, ff, w, elapsedLearn, elapsed, elapedTotal, totalAccuracy, totalEditAccuracy)
+		appendResult(*logPath, idx+1, ff, w, elapsedLearn, elapsed, elapedTotal, totalAccuracy, totalEditAccuracy)
 	}
 
 }
