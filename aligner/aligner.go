@@ -282,8 +282,10 @@ func hasSameMeaning(a, b []string) bool {
 		return false
 	}
 	for _, w := range a {
+		wNorm := strings.ToLower(normalizeText(w))
 		for _, x := range b {
-			if w == x {
+			xNorm := strings.ToLower(normalizeText(x))
+			if wNorm == xNorm {
 				return true
 			}
 		}
@@ -300,17 +302,39 @@ func initCache(funcName string) {
 	}
 }
 
-// VocDistance computes the distance based on vocabulary data
-func VocDistance(e Edit, data map[string]interface{}) float64 {
-	return distOnVocabulary(e, data, "VocDistance")
-}
-
 // EqEquivTermDistance computes the distance based on greek equivalent terms
 func EqEquivTermDistance(e Edit, data map[string]interface{}) float64 {
-	return distOnVocabulary(e, data, "EquivTermDistance")
+	vocName := "EquivTermDistance"
+	initCache(vocName)
+
+	if v, ok := scoreCache[vocName][e]; ok {
+		return v
+	}
+
+	voc := data[vocName].(map[string][]string)
+	res := 0.0
+	switch e.(type) {
+	case *Eq:
+		if hasSameMeaning(voc[e.(*Eq).From.Lemma], []string{e.(*Eq).To.Lemma}) {
+			res = 1.0
+		}
+	case *Sub:
+		// TODO expand for multiple words subs
+		from := e.(*Sub).From
+		to := e.(*Sub).To
+		if len(from) == 1 && len(to) == 1 {
+			if hasSameMeaning(voc[from[0].Lemma], []string{to[0].Lemma}) {
+				res = 1.0
+			}
+		}
+	}
+	scoreCache[vocName][e] = res
+	return res
 }
 
-func distOnVocabulary(e Edit, data map[string]interface{}, vocName string) float64 {
+// VocDistance computes the distance based on vocabulary data
+func VocDistance(e Edit, data map[string]interface{}) float64 {
+	vocName := "VocDistance"
 	initCache(vocName)
 
 	if v, ok := scoreCache[vocName][e]; ok {
