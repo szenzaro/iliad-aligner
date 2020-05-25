@@ -10,7 +10,6 @@ import (
 	"reflect"
 	"regexp"
 	"runtime"
-	"runtime/pprof"
 	"strings"
 	"time"
 
@@ -28,21 +27,14 @@ type goldStandard struct {
 }
 
 func main() {
-	defer profile.Start().Stop()
-
-	f, err := os.Create("cpu_profile")
-	if err != nil {
-		log.Fatal(err)
-	}
-	pprof.StartCPUProfile(f)
-	defer pprof.StopCPUProfile()
+	defer profile.Start(profile.MemProfile).Stop()
 
 	wordsPath := flag.String("w", "data/G44_I_III_HomPara.xlsx", "path to the xlsx file containing all the words")
 	tsPath := flag.String("ts", "data/G44_ALI.tmx", "path to the tmx file containing the alignment for the words in the DB")
 	vocPath := flag.String("voc", "data/Vocabulaire_Genavensis.xlsx", "path to the vocabulary xlsx file")
 	equivPath := flag.String("equiv", "data/Lexique Homer termes Equivalents 1-3.xlsx", "path to the equivalent terms xlsx file")
 	scholiePath := flag.String("sch", "data/scholied.json", "path to the scholie JSON file")
-	logPath := flag.String("log", "test.log", "path to log file")
+	logPath := flag.String("log", "out/test.log", "path to log file")
 
 	flag.Parse()
 	// TODO: check flags for errors or empty strings
@@ -50,7 +42,7 @@ func main() {
 	aligner.AdditionalData = map[string]interface{}{}
 
 	fmt.Println("Loading vocabulary")
-	_, err = aligner.LoadVoc(*vocPath, "VocDistance")
+	_, err := aligner.LoadVoc(*vocPath, "VocDistance")
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -75,29 +67,30 @@ func main() {
 	fmt.Println("Loading gold standard")
 	gs := loadGoldStandard(*tsPath, wordsDB)
 
-	// splitIndex := 3 * len(gs) / 10 // about 30%
-	splitIndex := 1 * len(gs) / 100 // about 30%
+	splitIndex := 3 * len(gs) / 10 // about 30%
 	// splitIndex := 25 * len(gs) / 100 // about 25%
 	trainingSet := gs[:splitIndex]
 	testSet := gs[splitIndex:]
 
 	features := []aligner.Feature{
-		aligner.EditType,
-		aligner.LexicalSimilarity,
-		aligner.LemmaDistance,
+		// aligner.EditType,
+		// aligner.LexicalSimilarity,
+		// aligner.LemmaDistance,
+		aligner.TextualDistance,
 		aligner.TagDistance,
 		aligner.VocDistance,
 		aligner.ScholieDistance,
 		aligner.EqEquivTermDistance,
-		aligner.MaxDistance,
+		// aligner.MaxDistance,
 	}
 
 	tests := getTests(features)
 
 	createLogFile(*logPath)
+	ar := aligner.NewGreekAligner()
+	subseqLen := 4
 	for idx, ff := range tests {
-		ar := aligner.NewGreekAligner() // TODO load scholie
-		subseqLen := 5
+		aligner.ResetCache()
 		alignAlg := func(p aligner.Problem, w []float64) *aligner.Alignment {
 			a, err := aligner.NewFromWordBags(p.From, p.To).Align(ar, ff, w, subseqLen, aligner.AdditionalData)
 			if err != nil {
@@ -106,20 +99,22 @@ func main() {
 			return a
 		}
 
-		// w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg)
-		fmt.Println("Start learning process...")
+		fmt.Println("- Start learning process... ", idx+1, "/", len(tests))
 		startLearn := time.Now()
 		totalTime := time.Now()
 		// w := []float64{0.2956361042981355, 0.060325626401096885, 0.033855873309357465, 0.024419617049442562, 0.8058173377380647, 0.004187020307669374, 0.1931506936628718}
-		w := learn(trainingSet, 2, 1, 1.0, 0.8, ff, alignAlg, aligner.AdditionalData)
-		//w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg, aligner.AdditionalData)
+		w := learn(trainingSet, 50, 10, 1.0, 0.8, ff, alignAlg, aligner.AdditionalData)
+		// w := learn(trainingSet[:10], 2, 1, 1.0, 0.8, ff, alignAlg, aligner.AdditionalData)
+		fmt.Println("- Learning done ", w)
 		elapsedLearn := time.Since(startLearn)
 
 		totalAcc := 0.0
 		totalEditAcc := 0.0
 		start := time.Now()
-		for i, p := range testSet[:3] {
-			fmt.Println(p.ID, " ", i*100/len(testSet))
+		fmt.Println("- Start alignment test")
+		for i, p := range testSet {
+			aligner.ResetCache()
+			fmt.Println(p.ID, " ", i+1, "/", len(testSet))
 			a := aligner.NewFromWordBags(p.p.From, p.p.To)
 			res, err := a.Align(ar, ff, w, subseqLen, aligner.AdditionalData)
 			if err != nil {
@@ -129,27 +124,28 @@ func main() {
 			totalAcc += acc
 			editAcc := res.EditsAccuracy(p.a)
 			totalEditAcc += editAcc
-			fmt.Println()
-			fmt.Println("Expected: ", p.a)
-			fmt.Println("Got: ", res)
-			fmt.Println("with accuracy ", acc)
-			fmt.Println("with edit accuracy ", editAcc)
-			fmt.Println()
+			// fmt.Println()
+			// fmt.Println("Expected: ", p.a)
+			// fmt.Println("Got: ", res)
+			// fmt.Println("with accuracy ", acc)
+			// fmt.Println("with edit accuracy ", editAcc)
+			// fmt.Println()
 		}
+		fmt.Println("- End alignment test")
 		elapsed := time.Since(start)
 		elapedTotal := time.Since(totalTime)
-		fmt.Println("Learned w: ", w)
-		fmt.Println("Split percentage: ", float64(splitIndex)/float64(len(gs)))
-		fmt.Println("Learn time needed: ", elapsedLearn)
-		fmt.Println("Alignment time needed: ", elapsed)
-		fmt.Println("With functions:")
-		for _, f := range ff {
-			fmt.Println("\t- ", getFunctionName(f))
-		}
+		// fmt.Println("Learned w: ", w)
+		// fmt.Println("Split percentage: ", float64(splitIndex)/float64(len(gs)))
+		// fmt.Println("Learn time needed: ", elapsedLearn)
+		// fmt.Println("Alignment time needed: ", elapsed)
+		// fmt.Println("With functions:")
+		// for _, f := range ff {
+		// 	fmt.Println("\t- ", getFunctionName(f))
+		// }
 		totalAccuracy := totalAcc / float64(len(testSet))
-		fmt.Println("Total accuracy: ", totalAccuracy)
+		// fmt.Println("Total accuracy: ", totalAccuracy)
 		totalEditAccuracy := totalEditAcc / float64(len(testSet))
-		fmt.Println("Total edit accuracy: ", totalEditAccuracy)
+		// fmt.Println("Total edit accuracy: ", totalEditAccuracy)
 
 		appendResult(*logPath, idx+1, ff, w, elapsedLearn, elapsed, elapedTotal, totalAccuracy, totalEditAccuracy)
 	}
@@ -175,14 +171,13 @@ func createLogFile(path string) {
 
 	header := fmt.Sprintln("Test Number\tFeatures\tEdit Accuracy\tScore Accuracy\tTotal Time\tLearn Time\tAlignment Time\tWeights")
 	file.WriteString(header)
-
 	fmt.Println("Log file Created Successfully", path)
 }
 
 func appendResult(path string, idx int, ff []aligner.Feature, w []float64, learnTime, alignmentTime, totalTime time.Duration, scoreAccuracy, editAccuracy float64) {
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		log.Println(err)
+		log.Fatalln(err)
 	}
 	defer f.Close()
 
@@ -284,28 +279,29 @@ func learn(
 	epochs := []vectors.Vector{}
 	n := len(trainingProblems)
 	R := R0
-	start := time.Now()
+	// start := time.Now()
 	for i := 0; i < N; i++ {
-		start := time.Now()
+		// start := time.Now()
 		R = r * R
 		shuffle(trainingProblems)
 		for j := 0; j < n; j++ {
 			fmt.Println(j+1, "/", n, " -- of ", i+1, "/", N, " ", trainingProblems[j].ID)
-			ss := time.Now()
+			aligner.ResetCache()
+			// ss := time.Now()
 			Ej := alignAlg(trainingProblems[j].p, w)
 			diff := vectors.Diff(
 				aligner.Phi(trainingProblems[j].a, featureFunctions, data),
 				aligner.Phi(Ej, featureFunctions, data)) // phi(Ej) - phi(Êj)
 			w = vectors.Sum(w, diff.Scale(R))
-			fmt.Println("finished in: ", time.Since(ss))
+			// fmt.Println("finished in: ", time.Since(ss))
 		}
 		w = w.Normalize(vectors.Norm2)
 		epochs = append(epochs, w)
-		elapsed := time.Since(start)
-		fmt.Println("lap ", i+1, " finished in ", elapsed)
+		// elapsed := time.Since(start)
+		// fmt.Println("lap ", i+1, " finished in ", elapsed)
 	}
-	elapsed := time.Since(start)
-	fmt.Println("trained in  ", elapsed)
+	// elapsed := time.Since(start)
+	// fmt.Println("trained in  ", elapsed)
 
 	return vectors.Avg(epochs[N0:])
 }

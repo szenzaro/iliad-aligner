@@ -42,6 +42,12 @@ type Word struct {
 // DB is the database of words
 type DB = map[string]Word
 
+// ResetCache clear the cache
+func ResetCache() {
+	scoreCache = map[string]map[Edit]float64{}
+	scholiePrefixCache = map[string][]string{}
+}
+
 // LoadDB retrieves all the words from the parameter paths
 func LoadDB(paths []string) (DB, error) {
 	data := DB{}
@@ -376,6 +382,14 @@ func TagDistance(e Edit, data map[string]interface{}) float64 {
 // LexicalSimilarity computes the distance based on the word text
 func LexicalSimilarity(e Edit, data map[string]interface{}) float64 {
 	return distanceOnField(e, data, "LexicalSimilarity", "Text")
+}
+
+// TextualDistance is the max between LE=exical and Lemma similarity
+func TextualDistance(e Edit, data map[string]interface{}) float64 {
+	return multiMax(
+		LexicalSimilarity(e, data),
+		LemmaDistance(e, data),
+	)
 }
 
 func distanceOnField(e Edit, data map[string]interface{}, funcName string, fieldName string) float64 {
