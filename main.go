@@ -90,6 +90,7 @@ func main() {
 	ar := aligner.NewGreekAligner()
 	subseqLen := 4
 	for idx, ff := range tests {
+		fmt.Println(getFeatureNames(ff))
 		aligner.ResetCache()
 		alignAlg := func(p aligner.Problem, w []float64) *aligner.Alignment {
 			a, err := aligner.NewFromWordBags(p.From, p.To).Align(ar, ff, w, subseqLen, aligner.AdditionalData)
