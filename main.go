@@ -88,7 +88,7 @@ func main() {
 
 	createLogFile(*logPath)
 	ar := aligner.NewGreekAligner()
-	subseqLen := 4
+	subseqLen := 1
 	for idx, ff := range tests {
 		fmt.Println(getFeatureNames(ff))
 		aligner.ResetCache()

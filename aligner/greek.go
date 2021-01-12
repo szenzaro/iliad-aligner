@@ -27,7 +27,8 @@ func (*greekAligner) next(a *Alignment, subSeqLen int) []Alignment {
 		x := x.(*Del)
 		for _, y := range inss {
 			y := y.(*Ins)
-			if x.W.Text != y.W.Text {
+			noPunctText := RemovePunctuation(x.W.Text)
+			if noPunctText != RemovePunctuation(y.W.Text) {
 				continue
 			}
 			eq := Eq{

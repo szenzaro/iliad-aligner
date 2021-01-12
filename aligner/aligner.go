@@ -392,6 +392,15 @@ func TextualDistance(e Edit, data map[string]interface{}) float64 {
 	)
 }
 
+// RemovePunctuation from a string
+func RemovePunctuation(s string) string {
+	news := s
+	for _, c := range []string{".", ",", "·", "«", "»", ";"} {
+		news = strings.Replace(news, c, "", -1)
+	}
+	return news
+}
+
 func distanceOnField(e Edit, data map[string]interface{}, funcName string, fieldName string) float64 {
 	initCache(funcName)
 	if v, ok := scoreCache[funcName][e]; ok {
