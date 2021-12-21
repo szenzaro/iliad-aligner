@@ -113,3 +113,24 @@ func TestVectorNorm2(t *testing.T) {
 		}
 	}
 }
+
+func TestVectorNorm(t *testing.T) {
+	tt := []struct {
+		v   Vector
+		out Vector
+	}{
+		{Vector{}, Vector{}},
+		{Vector{1}, Vector{1}},
+		{Vector{1, 2}, Vector{1, 2}},
+	}
+
+	fn := func([]float64) float64 { return 0 }
+
+	for _, v := range tt {
+		res := v.v.Normalize(fn)
+		if !Equals(res, v.out) {
+			t.Errorf("expected %v for Norm %v got %v", v.out, v, res)
+		}
+	}
+
+}
