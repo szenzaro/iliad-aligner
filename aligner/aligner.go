@@ -98,7 +98,7 @@ func (w *Word) getProblemID() string {
 }
 
 // Feature represents a computable feature for the alignment
-type Feature func(Edit, map[string]interface{}) float64 // func(sw, tw []word) float64
+type Feature func(Edit) float64 // func(sw, tw []word) float64
 
 // EditType compute the score using the edit type
 func EditType(e Edit, data map[string]interface{}) float64 {
@@ -117,15 +117,14 @@ func EditType(e Edit, data map[string]interface{}) float64 {
 }
 
 // MaxDistance combines the distances of the other features
-func MaxDistance(e Edit, data map[string]interface{}) float64 {
-	return multiMax(
-		LexicalSimilarity(e, data),
-		LemmaDistance(e, data),
-		TagDistance(e, data),
-		VocDistance(e, data),
-		ScholieDistance(e, data),
-		EqEquivTermDistance(e, data),
-	)
+func MaxDistance(fs ...Feature) func(e Edit) float64 {
+	return func(e Edit) float64 {
+		values := make([]float64, len(fs))
+		for i, f := range fs {
+			values[i] = f(e)
+		}
+		return multiMax(values...) // TODO: avoid range over array two times
+	}
 }
 
 // LoadScholie gets the data from the available scholies
@@ -167,12 +166,8 @@ func normalizeText(s string) string {
 	return conv
 }
 
-func getScholieEntries(entry string, sch map[string]interface{}) []string {
-	if scholiePrefixCache == nil {
-		scholiePrefixCache = map[string][]string{}
-	}
+func getScholieEntries(entry string, scholie *trie.Trie, scholiePrefixCache map[string][]string) []string {
 	entries := []string{}
-	scholie := sch["ScholieDistance"].(*trie.Trie)
 	scholieEntries := scholie.PrefixSearch(entry)
 	if v, ok := scholiePrefixCache[entry]; ok {
 		scholieEntries = v
@@ -193,43 +188,45 @@ func getScholieEntries(entry string, sch map[string]interface{}) []string {
 }
 
 // ScholieDistance computes the distance based onscholie
-func ScholieDistance(e Edit, sch map[string]interface{}) float64 {
-	initCache("ScholieDistance")
+func ScholieDistance(scholie *trie.Trie) func(Edit) float64 {
+	sch := scholie
+	scoreCache := map[Edit]float64{}
+	scholiePrefixCache := map[string][]string{}
 
-	switch e.(type) {
-	case *Ins:
-		scoreCache["ScholieDistance"][e] = 1.0
-		return 1.0
-	case *Del:
-		scoreCache["ScholieDistance"][e] = 1.0
-		return 1.0
-	}
-	// if s, ok := scoreCache["ScholieDistance"][e]; ok {
-	// 	return s
-	// }
-	from, to := e.getWords()
-	source, target := sumWords(from), sumWords(to)
-	entry := normalizeText(source.Text)
-
-	score := math.Inf(0)
-	targetText := normalizeText(target.Text)
-	for _, t := range getScholieEntries(entry, sch) {
-		dist := levenshteinDistance(targetText, t) / multiMax(float64(len(t)), float64(len(targetText)))
-		if dist <= score {
-			score = dist
+	return func(e Edit) float64 {
+		if s, ok := scoreCache[e]; ok {
+			return s
 		}
-		if dist == 0 {
-			break
+
+		switch e.(type) {
+		case *Ins, *Del:
+			return 1.0
 		}
-	}
 
-	if score == math.Inf(0) {
-		score = 1.0
-	}
+		from, to := e.getWords()
+		source, target := sumWords(from), sumWords(to)
+		entry := normalizeText(source.Text)
 
-	res := 1.0 - score
-	scoreCache["ScholieDistance"][e] = res
-	return res
+		score := math.Inf(0)
+		targetText := normalizeText(target.Text)
+		for _, t := range getScholieEntries(entry, sch, scholiePrefixCache) {
+			dist := levenshteinDistance(targetText, t) / multiMax(float64(len(t)), float64(len(targetText)))
+			if dist <= score {
+				score = dist
+			}
+			if dist == 0 {
+				break
+			}
+		}
+
+		if score == math.Inf(0) {
+			score = 1.0
+		}
+
+		res := 1.0 - score
+		scoreCache[e] = res
+		return res
+	}
 }
 
 // LoadVoc loads the vocabulary data
@@ -288,83 +285,83 @@ func initCache(funcName string) {
 }
 
 // EqEquivTermDistance computes the distance based on greek equivalent terms
-func EqEquivTermDistance(e Edit, data map[string]interface{}) float64 {
-	vocName := "EquivTermDistance"
-	initCache(vocName)
+func EqEquivTermDistance(dict map[string][]string) func(e Edit) float64 {
+	voc := dict
+	scoreCache := map[Edit]float64{}
 
-	if v, ok := scoreCache[vocName][e]; ok {
-		return v
-	}
-
-	voc := data[vocName].(map[string][]string)
-	res := 0.0
-	switch e := e.(type) {
-	case *Eq:
-		if hasSameMeaning(voc[e.From.Lemma], []string{e.To.Lemma}) {
-			res = 1.0
+	return func(e Edit) float64 {
+		if v, ok := scoreCache[e]; ok {
+			return v
 		}
-	case *Sub:
-		// TODO expand for multiple words subs
-		from := e.From
-		to := e.To
-		if len(from) == 1 && len(to) == 1 {
-			if hasSameMeaning(voc[from[0].Lemma], []string{to[0].Lemma}) {
+
+		res := 0.0
+		switch e := e.(type) {
+		case *Eq:
+			if hasSameMeaning(voc[e.From.Lemma], []string{e.To.Lemma}) {
 				res = 1.0
 			}
+		case *Sub:
+			// TODO expand for multiple words subs
+			from := e.From
+			to := e.To
+			if len(from) == 1 && len(to) == 1 {
+				if hasSameMeaning(voc[from[0].Lemma], []string{to[0].Lemma}) {
+					res = 1.0
+				}
+			}
 		}
+		scoreCache[e] = res
+		return res
 	}
-	scoreCache[vocName][e] = res
-	return res
 }
 
 // VocDistance computes the distance based on vocabulary data
-func VocDistance(e Edit, data map[string]interface{}) float64 {
-	vocName := "VocDistance"
-	initCache(vocName)
-
-	if v, ok := scoreCache[vocName][e]; ok {
-		return v
-	}
-
-	voc := data[vocName].(map[string][]string)
-	res := 0.0
-	switch e := e.(type) {
-	case *Eq:
-		if hasSameMeaning(voc[e.From.Lemma], voc[e.To.Lemma]) {
-			res = 1.0
+func VocDistance(dict map[string][]string) func(e Edit) float64 {
+	voc := dict
+	scoreCache := map[Edit]float64{}
+	return func(e Edit) float64 {
+		if v, ok := scoreCache[e]; ok {
+			return v
 		}
-	case *Sub:
-		// TODO expand for multiple words subs
-		if len(e.From) == 1 && len(e.To) == 1 {
-			if hasSameMeaning(voc[e.From[0].Lemma], voc[e.To[0].Lemma]) {
+		res := 0.0
+		switch e := e.(type) {
+		case *Eq:
+			if hasSameMeaning(voc[e.From.Lemma], voc[e.To.Lemma]) {
 				res = 1.0
 			}
+		case *Sub:
+			// TODO expand for multiple words subs
+			if len(e.From) == 1 && len(e.To) == 1 {
+				if hasSameMeaning(voc[e.From[0].Lemma], voc[e.To[0].Lemma]) {
+					res = 1.0
+				}
+			}
 		}
+		scoreCache[e] = res
+		return res
 	}
-	scoreCache[vocName][e] = res
-	return res
 }
 
 // LemmaDistance computes the distance based on the word lemma
-func LemmaDistance(e Edit, data map[string]interface{}) float64 {
-	return distanceOnField(e, data, "LemmaDistance", "Lemma")
+func LemmaDistance(e Edit) float64 {
+	return distanceOnField(e, "LemmaDistance", "Lemma")
 }
 
 // TagDistance computes the distance based on the word tag
-func TagDistance(e Edit, data map[string]interface{}) float64 {
-	return distanceOnField(e, data, "TagDistance", "Tag")
+func TagDistance(e Edit) float64 {
+	return distanceOnField(e, "TagDistance", "Tag")
 }
 
 // LexicalSimilarity computes the distance based on the word text
-func LexicalSimilarity(e Edit, data map[string]interface{}) float64 {
-	return distanceOnField(e, data, "LexicalSimilarity", "Text")
+func LexicalSimilarity(e Edit) float64 {
+	return distanceOnField(e, "LexicalSimilarity", "Text")
 }
 
 // TextualDistance is the max between LE=exical and Lemma similarity
-func TextualDistance(e Edit, data map[string]interface{}) float64 {
+func TextualDistance(e Edit) float64 {
 	return multiMax(
-		LexicalSimilarity(e, data),
-		LemmaDistance(e, data),
+		LexicalSimilarity(e),
+		LemmaDistance(e),
 	)
 }
 
@@ -377,7 +374,7 @@ func RemovePunctuation(s string) string {
 	return news
 }
 
-func distanceOnField(e Edit, data map[string]interface{}, funcName string, fieldName string) float64 {
+func distanceOnField(e Edit, funcName string, fieldName string) float64 {
 	initCache(funcName)
 	if v, ok := scoreCache[funcName][e]; ok {
 		return v
@@ -486,7 +483,7 @@ func (e *Ins) Score(fs []Feature, ws []float64, data map[string]interface{}) flo
 	score := 0.0
 	for i, f := range fs {
 		// score += w[i] * f([]word{}, []word{e.w})
-		score += ws[i] * f(e, data)
+		score += ws[i] * f(e)
 	}
 	return score
 }
@@ -500,7 +497,7 @@ type Del struct {
 func (e *Del) Score(fs []Feature, ws []float64, data map[string]interface{}) float64 {
 	score := 0.0
 	for i, f := range fs {
-		score += ws[i] * f(e, data)
+		score += ws[i] * f(e)
 	}
 	return score
 }
@@ -515,7 +512,7 @@ type Eq struct {
 func (e *Eq) Score(fs []Feature, ws []float64, data map[string]interface{}) float64 {
 	score := 0.0
 	for i, f := range fs {
-		score += ws[i] * f(e, data)
+		score += ws[i] * f(e)
 	}
 	return score
 }
@@ -530,7 +527,7 @@ type Sub struct {
 func (e *Sub) Score(fs []Feature, ws []float64, data map[string]interface{}) float64 {
 	score := 0.0
 	for i, f := range fs {
-		score += ws[i] * f(e, data)
+		score += ws[i] * f(e)
 	}
 	return score
 }
@@ -654,7 +651,7 @@ func Phi(a *Alignment, fs []Feature, data map[string]interface{}) vectors.Vector
 	for i, f := range fs {
 		featureValue := 0.0
 		for _, e := range a.editMap {
-			featureValue += f(e, data)
+			featureValue += f(e)
 		}
 		v[i] = featureValue
 	}
