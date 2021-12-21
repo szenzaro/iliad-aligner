@@ -128,24 +128,6 @@ func MaxDistance(e Edit, data map[string]interface{}) float64 {
 	)
 }
 
-func getWords(e Edit) ([]Word, []Word) {
-	from := []Word{}
-	to := []Word{}
-	switch e := e.(type) {
-	case *Ins:
-		to = []Word{e.W}
-	case *Del:
-		from = []Word{e.W}
-	case *Eq:
-		from = []Word{e.From}
-		to = []Word{e.To}
-	case *Sub:
-		from = e.From
-		to = e.To
-	}
-	return from, to
-}
-
 // LoadScholie gets the data from the available scholies
 func LoadScholie(path string) (*trie.Trie, error) {
 	jsonFile, err := os.Open(path)
@@ -225,8 +207,7 @@ func ScholieDistance(e Edit, sch map[string]interface{}) float64 {
 	// if s, ok := scoreCache["ScholieDistance"][e]; ok {
 	// 	return s
 	// }
-
-	from, to := getWords(e)
+	from, to := e.getWords()
 	source, target := sumWords(from), sumWords(to)
 	entry := normalizeText(source.Text)
 
@@ -402,7 +383,7 @@ func distanceOnField(e Edit, data map[string]interface{}, funcName string, field
 		return v
 	}
 
-	from, to := getWords(e)
+	from, to := e.getWords()
 	source, target := sumWords(from), sumWords(to)
 	sourceValue := reflect.ValueOf(source).FieldByName(fieldName).String()
 	targetValue := reflect.ValueOf(target).FieldByName(fieldName).String()
@@ -470,6 +451,7 @@ type Edit interface {
 	fmt.Stringer
 	Score(fs []Feature, ws []float64, data map[string]interface{}) float64
 	GetProblemID() string
+	getWords() ([]Word, []Word)
 }
 
 // Ins is the insertion edit
@@ -493,6 +475,11 @@ func (e *Sub) GetProblemID() string {
 	}
 	return e.From[0].getProblemID()
 }
+
+func (e *Ins) getWords() ([]Word, []Word) { return []Word{}, []Word{e.W} }
+func (e *Del) getWords() ([]Word, []Word) { return []Word{e.W}, []Word{} }
+func (e *Eq) getWords() ([]Word, []Word)  { return []Word{e.From}, []Word{e.To} }
+func (e *Sub) getWords() ([]Word, []Word) { return e.From, e.To }
 
 // Score the edit
 func (e *Ins) Score(fs []Feature, ws []float64, data map[string]interface{}) float64 {
@@ -831,7 +818,7 @@ func LoadScholieDict(path string) (map[string][]string, error) {
 
 // ScholieDistanceExact computes the distance based onscholie
 func ScholieDistanceExact(e Edit, sch map[string]interface{}) float64 {
-	from, to := getWords(e)
+	from, to := e.getWords()
 	source, target := sumWords(from), sumWords(to)
 	scholie := sch["ScholieDistanceExact"].(map[string][]string)
 
