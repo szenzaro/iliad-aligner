@@ -132,17 +132,17 @@ func MaxDistance(e Edit, data map[string]interface{}) float64 {
 func getWords(e Edit) ([]Word, []Word) {
 	from := []Word{}
 	to := []Word{}
-	switch e.(type) {
+	switch e := e.(type) {
 	case *Ins:
-		to = []Word{e.(*Ins).W}
+		to = []Word{e.W}
 	case *Del:
-		from = []Word{e.(*Del).W}
+		from = []Word{e.W}
 	case *Eq:
-		from = []Word{e.(*Eq).From}
-		to = []Word{e.(*Eq).To}
+		from = []Word{e.From}
+		to = []Word{e.To}
 	case *Sub:
-		from = e.(*Sub).From
-		to = e.(*Sub).To
+		from = e.From
+		to = e.To
 	}
 	return from, to
 }
@@ -320,15 +320,15 @@ func EqEquivTermDistance(e Edit, data map[string]interface{}) float64 {
 
 	voc := data[vocName].(map[string][]string)
 	res := 0.0
-	switch e.(type) {
+	switch e := e.(type) {
 	case *Eq:
-		if hasSameMeaning(voc[e.(*Eq).From.Lemma], []string{e.(*Eq).To.Lemma}) {
+		if hasSameMeaning(voc[e.From.Lemma], []string{e.To.Lemma}) {
 			res = 1.0
 		}
 	case *Sub:
 		// TODO expand for multiple words subs
-		from := e.(*Sub).From
-		to := e.(*Sub).To
+		from := e.From
+		to := e.To
 		if len(from) == 1 && len(to) == 1 {
 			if hasSameMeaning(voc[from[0].Lemma], []string{to[0].Lemma}) {
 				res = 1.0
@@ -350,17 +350,15 @@ func VocDistance(e Edit, data map[string]interface{}) float64 {
 
 	voc := data[vocName].(map[string][]string)
 	res := 0.0
-	switch e.(type) {
+	switch e := e.(type) {
 	case *Eq:
-		if hasSameMeaning(voc[e.(*Eq).From.Lemma], voc[e.(*Eq).To.Lemma]) {
+		if hasSameMeaning(voc[e.From.Lemma], voc[e.To.Lemma]) {
 			res = 1.0
 		}
 	case *Sub:
 		// TODO expand for multiple words subs
-		from := e.(*Sub).From
-		to := e.(*Sub).To
-		if len(from) == 1 && len(to) == 1 {
-			if hasSameMeaning(voc[from[0].Lemma], voc[to[0].Lemma]) {
+		if len(e.From) == 1 && len(e.To) == 1 {
+			if hasSameMeaning(voc[e.From[0].Lemma], voc[e.To[0].Lemma]) {
 				res = 1.0
 			}
 		}

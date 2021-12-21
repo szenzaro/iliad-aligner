@@ -167,21 +167,21 @@ func removeEditWithWordsByID(a *Alignment, ws ...Word) {
 
 	for _, w := range ws {
 		for _, v := range a.editMap {
-			switch v.(type) {
+			switch v := v.(type) {
 			case *Ins:
-				if v.(*Ins).W.ID == w.ID && v.(*Ins).W == w {
+				if v.W.ID == w.ID && v.W == w {
 					toremove = append(toremove, v)
 				}
 			case *Del:
-				if v.(*Del).W.ID == w.ID && v.(*Del).W == w {
+				if v.W.ID == w.ID && v.W == w {
 					toremove = append(toremove, v)
 				}
 			case *Eq:
-				if (v.(*Eq).From == w || v.(*Eq).To == w) && (v.(*Eq).From.ID == w.ID || v.(*Eq).To.ID == w.ID) {
+				if (v.From == w || v.To == w) && (v.From.ID == w.ID || v.To.ID == w.ID) {
 					toremove = append(toremove, v)
 				}
 			case *Sub:
-				for _, x := range append(v.(*Sub).From[:], v.(*Sub).To[:]...) {
+				for _, x := range append(v.From[:], v.To[:]...) {
 					if x.ID == w.ID && x == w {
 						toremove = append(toremove, v)
 						break
