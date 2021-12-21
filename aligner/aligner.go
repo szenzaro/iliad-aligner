@@ -191,11 +191,9 @@ func getScholieEntries(entry string, sch map[string]interface{}) []string {
 	}
 	entries := []string{}
 	scholie := sch["ScholieDistance"].(*trie.Trie)
-	scholieEntries := []string{}
+	scholieEntries := scholie.PrefixSearch(entry)
 	if v, ok := scholiePrefixCache[entry]; ok {
 		scholieEntries = v
-	} else {
-		scholieEntries = scholie.PrefixSearch(entry)
 	}
 
 	if entry == "" || len(scholieEntries) == 0 {
