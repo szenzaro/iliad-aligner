@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	trie "github.com/derekparker/trie"
 	"github.com/szenzaro/iliad-aligner/vectors"
@@ -416,16 +415,6 @@ func distanceOnField(e Edit, data map[string]interface{}, funcName string, field
 	return dist
 }
 
-func multiMin(vs ...float64) float64 {
-	min := math.Inf(1)
-	for _, v := range vs {
-		if v < min {
-			min = v
-		}
-	}
-	return min
-}
-
 func multiMax(vs ...float64) float64 {
 	max := math.Inf(-1)
 	for _, v := range vs {
@@ -434,37 +423,6 @@ func multiMax(vs ...float64) float64 {
 		}
 	}
 	return max
-}
-
-func subDist(source, target []string) float64 {
-	min := int(math.Min(float64(len(source)), float64(len(target))))
-	max := int(math.Max(float64(len(source)), float64(len(target))))
-	sumSubs := 0.0
-	for i := 0; i < min; i++ {
-		sumSubs += levenshteinDistance(source[i], target[i])
-	}
-
-	for i := min; i < max; i++ {
-		if len(source) > i {
-			sumSubs += float64(utf8.RuneCountInString(source[i]))
-		}
-		if len(target) > i {
-			sumSubs += float64(utf8.RuneCountInString(target[i]))
-		}
-	}
-	return sumSubs
-}
-
-func normalizedDist(source, target []string) float64 {
-	sumSubs := subDist(source, target)
-	var concatSource, concatTarget string
-	for _, v := range source {
-		concatSource += v
-	}
-	for _, v := range target {
-		concatTarget += v
-	}
-	return sumSubs + levenshteinDistance(concatSource, concatTarget)
 }
 
 func sumWords(x []Word) Word {
@@ -716,19 +674,6 @@ func Phi(a *Alignment, fs []Feature, data map[string]interface{}) vectors.Vector
 		v[i] = featureValue
 	}
 	return v
-}
-
-func new(src, target []Word) *Alignment {
-	a := Alignment{
-		editMap: map[Edit]Edit{},
-	}
-	for _, x := range src {
-		a.Add(&Del{W: x})
-	}
-	for _, x := range target {
-		a.Add(&Ins{W: x})
-	}
-	return &a
 }
 
 // NewFromWordBags creates an aligment from two word bags

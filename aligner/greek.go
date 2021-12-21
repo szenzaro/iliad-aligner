@@ -3,7 +3,6 @@ package aligner
 import (
 	"reflect"
 	"sort"
-	"sync"
 )
 
 type greekAligner struct{}
@@ -116,8 +115,6 @@ func (*greekAligner) next(a *Alignment, subSeqLen int) []Alignment {
 // Scholie data
 type Scholie map[string]map[string][]string
 
-var mutex = &sync.Mutex{}
-
 func limitedSubsequences(arr []Word, limit int) [][]Word {
 	comb := func(n, m int, emit func([]int)) {
 		s := make([]int, m)
@@ -132,7 +129,6 @@ func limitedSubsequences(arr []Word, limit int) [][]Word {
 					rc(i+1, j+1)
 				}
 			}
-			return
 		}
 		rc(0, 0)
 	}
