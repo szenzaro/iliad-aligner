@@ -76,42 +76,6 @@ func (*greekAligner) next(a *Alignment, subSeqLen int) []Alignment {
 	return nextAlignments
 }
 
-// func removeEditWithWords(a *alignment, ws ...word) {
-// 	toremove := []edit{}
-
-// 	inss := a.filter(reflect.TypeOf(&ins{}))
-// 	dels := a.filter(reflect.TypeOf(&del{}))
-// 	eqs := a.filter(reflect.TypeOf(&eq{}))
-// 	subs := a.filter(reflect.TypeOf(&sub{}))
-
-// 	for _, w := range ws {
-// 		for _, v := range inss {
-// 			if v.(*ins).w == w {
-// 				toremove = append(toremove, v)
-// 			}
-// 		}
-// 		for _, v := range dels {
-// 			if v.(*del).w == w {
-// 				toremove = append(toremove, v)
-// 			}
-// 		}
-// 		for _, v := range eqs {
-// 			if v.(*q).Source == w || v.(*wordsaligner.Eq).Target == w {
-// 				toremove = append(toremove, v)
-// 			}
-// 		}
-// 		for _, v := range subs {
-// 			for _, x := range append(v.(*Sub).Source[:], v.(*Sub).Target[:]...) {
-// 				if x == w {
-// 					toremove = append(toremove, v)
-// 					break
-// 				}
-// 			}
-// 		}
-// 	}
-// 	a.Remove(toremove...)
-// }
-
 // Scholie data
 type Scholie map[string]map[string][]string
 
