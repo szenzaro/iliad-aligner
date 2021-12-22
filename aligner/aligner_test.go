@@ -74,13 +74,67 @@ func TestSortID(t *testing.T) {
 	}
 }
 
-func TestVocDistance(t *testing.T) {
-	dict, err := LoadVoc("../data/Vocabulaire_Genavensis.xlsx", "voc-dict")
-	if err != nil {
-		panic(err)
+func TestSameMeaning(t *testing.T) {
+	dict := map[string][]string{
+		"ἔκπαγλος": {"effrayant", "terrible", "étonnant", "merveilleux"},
+		"φοβερός":  {"effrayant", "terrible", "craintif"},
+		"ἐπόμνυμι": {"jurer en outre", "confirmer ce qu'on dit par un serment", "jurer à la suite"},
 	}
 
-	var e Edit
-	res := VocDistance(dict)(e) // TODO: just wip test, need to be completed
-	fmt.Println(res)
+	tt := []struct {
+		w1  string
+		w2  string
+		out bool
+	}{
+		{"ἔκπαγλος", "ἔκπαγλος", true},
+		{"ἔκπαγλος", "φοβερός", true},
+		{"ἔκπαγλος", "ἐπόμνυμι", false},
+	}
+
+	for _, v := range tt {
+		if hasSameMeaning(dict[v.w1], dict[v.w2]) != v.out {
+			t.Errorf("expected hasSameMeaning of %v and %v to be %v", v.w1, v.w2, v.out)
+		}
+	}
+}
+
+func TestVocDistance(t *testing.T) {
+	dict := map[string][]string{
+		"ἔκπαγλος": {"effrayant", "terrible", "étonnant", "merveilleux"},
+		"φοβερός":  {"effrayant", "terrible", "craintif"},
+		"ἐπόμνυμι": {"jurer en outre", "confirmer ce qu'on dit par un serment", "jurer à la suite"},
+	}
+
+	ws := map[string]Word{
+		"ἔκπαγλος": {Text: "ἔκπαγλος", Lemma: "ἔκπαγλος"},
+		"φοβερός":  {Text: "φοβερός", Lemma: "φοβερός"},
+		"ἐπόμνυμι": {Text: "ἐπόμνυμι", Lemma: "ἐπόμνυμι"},
+	}
+
+	edit := &Ins{W: ws["ἔκπαγλος"]}
+	tt := []struct {
+		e   Edit
+		out float64
+	}{
+		{edit, 0},
+		{edit, 0},
+		{&Del{W: ws["ἔκπαγλος"]}, 0},
+		{&Eq{From: ws["ἔκπαγλος"], To: ws["ἔκπαγλος"]}, 1},
+		{&Eq{From: ws["ἔκπαγλος"], To: ws["φοβερός"]}, 1},
+		{&Eq{From: ws["ἔκπαγλος"], To: ws["ἐπόμνυμι"]}, 0},
+		{&Sub{From: []Word{ws["ἔκπαγλος"], ws["φοβερός"]}, To: []Word{ws["ἔκπαγλος"]}}, 1},
+		{&Sub{From: []Word{ws["ἔκπαγλος"], ws["φοβερός"]}, To: []Word{ws["φοβερός"]}}, 1},
+		{&Sub{From: []Word{ws["ἔκπαγλος"], ws["ἐπόμνυμι"]}, To: []Word{ws["φοβερός"]}}, 1},
+		{&Sub{From: []Word{ws["ἐπόμνυμι"]}, To: []Word{ws["φοβερός"]}}, 0},
+		{&Sub{From: []Word{ws["ἔκπαγλος"], ws["ἐπόμνυμι"]}, To: []Word{ws["ἐπόμνυμι"]}}, 1},
+		{&Sub{From: []Word{ws["ἔκπαγλος"], ws["φοβερός"]}, To: []Word{}}, 0},
+	}
+
+	feature := VocDistance(dict)
+	for _, v := range tt {
+		res := feature(v.e)
+		if res != v.out {
+			t.Errorf("expected %v got %v with edit %v", v.out, res, v.e.String())
+		}
+	}
 }

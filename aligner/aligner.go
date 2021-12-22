@@ -260,9 +260,6 @@ func LoadVoc(path string, dictName string) (map[string][]string, error) {
 }
 
 func hasSameMeaning(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
 	for _, w := range a {
 		wNorm := strings.ToLower(normalizeText(w))
 		for _, x := range b {
@@ -323,22 +320,24 @@ func VocDistance(dict map[string][]string) func(e Edit) float64 {
 		if v, ok := scoreCache[e]; ok {
 			return v
 		}
-		res := 0.0
 		switch e := e.(type) {
 		case *Eq:
 			if hasSameMeaning(voc[e.From.Lemma], voc[e.To.Lemma]) {
-				res = 1.0
+				scoreCache[e] = 1.0
+				return scoreCache[e]
 			}
 		case *Sub:
-			// TODO expand for multiple words subs
-			if len(e.From) == 1 && len(e.To) == 1 {
-				if hasSameMeaning(voc[e.From[0].Lemma], voc[e.To[0].Lemma]) {
-					res = 1.0
+			for _, from := range e.From {
+				for _, to := range e.To {
+					if hasSameMeaning(voc[from.Lemma], voc[to.Lemma]) {
+						scoreCache[e] = 1.0
+						return scoreCache[e]
+					}
 				}
 			}
 		}
-		scoreCache[e] = res
-		return res
+		scoreCache[e] = 0.0
+		return scoreCache[e]
 	}
 }
 
