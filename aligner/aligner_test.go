@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/derekparker/trie"
 )
 
 func TestInclude(t *testing.T) {
@@ -135,6 +137,39 @@ func TestVocDistance(t *testing.T) {
 		res := feature(v.e)
 		if res != v.out {
 			t.Errorf("expected %v got %v with edit %v", v.out, res, v.e.String())
+		}
+	}
+}
+
+func TestScholieDistance(t *testing.T) {
+
+	sch := trie.New()
+	sch.Add("αειδε", []string{"αδε", "λεγε"})
+	sch.Add("πηληιαδεω", []string{"τουπηλεωςπαιδος"})
+
+	feature := ScholieDistance(sch)
+
+	ws := map[string]Word{
+		"αειδε":     {Text: "αειδε"},
+		"αδε":       {Text: "αδε"},
+		"λεγε":      {Text: "λεγε"},
+		"πηληιαδεω": {Text: "τουπηλεωςπαιδος"},
+	}
+
+	tt := []struct {
+		e   Edit
+		out float64
+	}{
+		{&Ins{W: ws["αειδε"]}, 1},
+		{&Sub{From: []Word{ws["αειδε"]}, To: []Word{ws["αειδε"]}}, 0.8},
+		{&Sub{From: []Word{ws["αειδε"]}, To: []Word{ws["αδε"]}}, 0},
+		{&Sub{From: []Word{ws["αειδε"]}, To: []Word{ws["λεγε"]}}, 0},
+	}
+
+	for _, v := range tt {
+		res := feature(v.e)
+		if res != v.out {
+			t.Errorf("expected %v got %v for %v", v.out, res, v.e.String())
 		}
 	}
 }
