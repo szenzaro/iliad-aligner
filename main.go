@@ -42,19 +42,19 @@ func main() {
 	aligner.AdditionalData = map[string]interface{}{}
 
 	fmt.Println("Loading vocabulary")
-	_, err := aligner.LoadVoc(*vocPath, "VocDistance")
+	voc, err := aligner.LoadVoc(*vocPath, "VocDistance")
 	if err != nil {
 		log.Fatalln(err)
 	}
 
 	fmt.Println("Loading equivalence terms")
-	_, err = aligner.LoadVoc(*equivPath, "EquivTermDistance")
+	eqVoc, err := aligner.LoadVoc(*equivPath, "EquivTermDistance")
 	if err != nil {
 		log.Fatalln(err)
 	}
 
 	fmt.Println("Loading scholie")
-	_, err = aligner.LoadScholie(*scholiePath)
+	sch, err := aligner.LoadScholie(*scholiePath)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -74,14 +74,23 @@ func main() {
 
 	features := []aligner.Feature{
 		// aligner.EditType,
-		// aligner.LexicalSimilarity,
-		// aligner.LemmaDistance,
-		aligner.TextualDistance,
-		aligner.TagDistance,
-		aligner.VocDistance,
-		aligner.ScholieDistance,
-		aligner.EqEquivTermDistance,
-		// aligner.MaxDistance,
+		// aligner.LexicalSimilarity(),
+		//aligner.LemmaDistance(),
+
+		aligner.TextualDistance(),
+		aligner.TagDistance(),
+		aligner.VocDistance(voc),
+		aligner.ScholieDistance(sch),
+		aligner.EqEquivTermDistance(eqVoc),
+
+		// aligner.MaxDistance(
+		// 	aligner.LexicalSimilarity,
+		// 	aligner.LemmaDistance,
+		// 	aligner.TagDistance,
+		// 	aligner.VocDistance(voc),
+		// 	aligner.ScholieDistance(sch),
+		// 	aligner.EqEquivTermDistance(eqVoc),
+		// ),
 	}
 
 	tests := getTests(features)

@@ -173,3 +173,148 @@ func TestScholieDistance(t *testing.T) {
 		}
 	}
 }
+
+func TestDistanceOnField(t *testing.T) {
+	ws := map[string]Word{
+		"a":     {Text: "a", Lemma: "a", Tag: "a"},
+		"aa":    {Text: "aa", Lemma: "aa", Tag: "aa"},
+		"empty": {Text: "", Lemma: "", Tag: ""},
+		"à":     {Text: "à", Lemma: "à", Tag: "à"},
+	}
+
+	tt := []struct {
+		e   Edit
+		out float64
+	}{
+		{&Ins{W: ws["a"]}, 0},
+		{&Del{W: ws["a"]}, 0},
+		{&Del{W: ws["aa"]}, 0},
+		{&Eq{From: ws["a"], To: ws["a"]}, 1},
+		{&Eq{From: ws["a"], To: ws["à"]}, 0},
+		{&Eq{From: ws["a"], To: ws["b"]}, 0},
+		{&Sub{From: []Word{ws["a"]}, To: []Word{ws["a"]}}, 1},
+		{&Sub{From: []Word{ws["empty"]}, To: []Word{ws["aa"]}}, 0},
+		{&Sub{From: []Word{ws["a"]}, To: []Word{ws["aa"]}}, 0.5},
+		{&Sub{From: []Word{ws["a"]}, To: []Word{ws["à"]}}, 0},
+		{&Sub{From: []Word{ws["à"]}, To: []Word{ws["a"]}}, 0},
+		{&Sub{From: []Word{ws["a"], ws["a"]}, To: []Word{ws["a"], ws["a"]}}, 1},
+		{&Sub{From: []Word{ws["a"], ws["a"]}, To: []Word{ws["aa"]}}, 1},
+	}
+
+	feature := distanceOnField("Text")
+	for _, v := range tt {
+		res := feature(v.e)
+		if res != v.out {
+			t.Errorf("expected %v got %v for %v", v.out, res, v.e.String())
+		}
+
+	}
+}
+
+func TestEqVoc(t *testing.T) {
+	voc := map[string][]string{
+		"ἕννυμι":   {"ἐνδύω"},
+		"οἴγνυμι":  {"ἀνοίγνυμι"},
+		"ἐκπάγλως": {"ἐκπληκτικῶς", "κακῶς", "μεγάλως"},
+	}
+
+	ws := map[string]Word{
+		"ἕννυμι": {Lemma: "ἕννυμι"},
+		"ἐνδύω":  {Lemma: "ἐνδύω"},
+		"κακῶς":  {Lemma: "κακῶς"},
+	}
+
+	feature := EqEquivTermDistance(voc)
+
+	tt := []struct {
+		e   Edit
+		out float64
+	}{
+		{&Ins{}, 0},
+		{&Sub{From: []Word{ws["ἕννυμι"]}, To: []Word{ws["ἐνδύω"]}}, 1},
+		{&Sub{From: []Word{ws["ἕννυμι"]}, To: []Word{ws["ἕννυμι"]}}, 0},
+		{&Eq{From: ws["ἕννυμι"], To: ws["ἐνδύω"]}, 1},
+	}
+
+	for _, v := range tt {
+		res := feature(v.e)
+		if res != v.out {
+			t.Errorf("expected %v got %v for %v", v.out, res, v.e.String())
+		}
+	}
+}
+
+func TestEditToString(t *testing.T) {
+	tt := []struct {
+		e   Edit
+		out string
+	}{
+		{&Ins{W: Word{Text: "a"}}, "Ins(a)"},
+		{&Del{W: Word{Text: "a"}}, "Del(a)"},
+		{&Eq{From: Word{Text: "a"}, To: Word{Text: "b"}}, "Eq(a , b)"},
+		{&Sub{From: []Word{{Text: "a"}}, To: []Word{{Text: "b"}}}, "Sub(a , b)"},
+		{&Sub{From: []Word{{Text: "a"}, {Text: "c"}}, To: []Word{{Text: "b"}, {Text: "d"}}}, "Sub(a c , b d)"},
+	}
+	for _, v := range tt {
+		res := v.e.String()
+		if res != v.out {
+			t.Errorf("expected %v got %v for %v", v.out, res, v.e.String())
+		}
+	}
+}
+
+func TestAlignmentIncludes(t *testing.T) {
+	a := NewFromEdits(
+		&Ins{W: Word{Text: "a"}},
+		&Del{W: Word{Text: "a"}},
+		&Eq{From: Word{Text: "a"}, To: Word{Text: "b"}},
+		&Sub{From: []Word{{Text: "a"}}, To: []Word{{Text: "b"}}},
+	)
+
+	tt := []struct {
+		e   Edit
+		out bool
+	}{
+		{&Ins{W: Word{Text: "a"}}, true},
+		{&Ins{W: Word{Text: "b"}}, false},
+		{&Del{W: Word{Text: "a"}}, true},
+		{&Eq{From: Word{Text: "a"}, To: Word{Text: "b"}}, true},
+		{&Sub{From: []Word{{Text: "a"}}, To: []Word{{Text: "b"}}}, true},
+	}
+
+	for _, v := range tt {
+		res := a.includes(v.e)
+		if res != v.out {
+			t.Errorf("expected %v got %v for %v", v.out, res, v.e.String())
+		}
+	}
+
+}
+
+func TestScore(t *testing.T) {
+	tt := []struct {
+		a        *Alignment
+		features []Feature
+		ws       []float64
+		out      float64
+	}{
+		{NewFromEdits(), []Feature{}, []float64{}, 0},
+		{NewFromEdits(&Ins{W: Word{Text: "a"}}), []Feature{}, []float64{}, 0},
+		{NewFromEdits(&Ins{W: Word{Text: "a"}}), []Feature{LexicalSimilarity()}, []float64{1}, 0},
+		{NewFromEdits(&Sub{From: []Word{{Text: "a"}}, To: []Word{{Text: "b"}}}), []Feature{LexicalSimilarity()}, []float64{1}, 0},
+		{NewFromEdits(&Sub{From: []Word{{Text: "a"}}, To: []Word{{Text: "ab"}}}), []Feature{LexicalSimilarity()}, []float64{1}, 0.5},
+		{NewFromEdits(&Sub{From: []Word{{Text: "aa"}}, To: []Word{{Text: "aa"}}}), []Feature{LexicalSimilarity()}, []float64{1}, 1},
+		{NewFromEdits(
+			&Sub{From: []Word{{Text: "a"}}, To: []Word{{Text: "a"}}},
+			&Sub{From: []Word{{Text: "b"}}, To: []Word{{Text: "c"}}},
+		), []Feature{LexicalSimilarity()}, []float64{1}, 1},
+	}
+
+	for _, v := range tt {
+		res := v.a.Score(v.features, v.ws, map[string]interface{}{})
+		if res != v.out {
+			t.Errorf("expected %v got %v for %v", v.out, res, v.a.String())
+		}
+	}
+
+}
