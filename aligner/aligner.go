@@ -93,9 +93,7 @@ func sortID(i, j int, arr []string) bool {
 	return m1 < m2
 }
 
-func (w *Word) getProblemID() string {
-	return fmt.Sprintf("%s.%s", w.Chant, w.Verse)
-}
+func (w *Word) getProblemID() string { return fmt.Sprintf("%s.%s", w.Chant, w.Verse) }
 
 // Feature represents a computable feature for the alignment
 type Feature func(Edit) float64 // func(sw, tw []word) float64
@@ -272,43 +270,33 @@ func hasSameMeaning(a, b []string) bool {
 	return false
 }
 
-func initCache(funcName string) {
-	if scoreCache == nil {
-		scoreCache = map[string]map[Edit]float64{}
-	}
-	if scoreCache[funcName] == nil {
-		scoreCache[funcName] = map[Edit]float64{}
-	}
-}
-
 // EqEquivTermDistance computes the distance based on greek equivalent terms
 func EqEquivTermDistance(dict map[string][]string) func(e Edit) float64 {
 	voc := dict
 	scoreCache := map[Edit]float64{}
-
 	return func(e Edit) float64 {
 		if v, ok := scoreCache[e]; ok {
 			return v
 		}
 
-		res := 0.0
 		switch e := e.(type) {
 		case *Eq:
 			if hasSameMeaning(voc[e.From.Lemma], []string{e.To.Lemma}) {
-				res = 1.0
+				scoreCache[e] = 1.0
+				return scoreCache[e]
 			}
 		case *Sub:
-			// TODO expand for multiple words subs
-			from := e.From
-			to := e.To
-			if len(from) == 1 && len(to) == 1 {
-				if hasSameMeaning(voc[from[0].Lemma], []string{to[0].Lemma}) {
-					res = 1.0
+			for _, from := range e.From {
+				for _, to := range e.To {
+					if hasSameMeaning(voc[from.Lemma], []string{to.Lemma}) {
+						scoreCache[e] = 1.0
+						return scoreCache[e]
+					}
 				}
 			}
 		}
-		scoreCache[e] = res
-		return res
+		scoreCache[e] = 0.0
+		return scoreCache[e]
 	}
 }
 
@@ -342,25 +330,23 @@ func VocDistance(dict map[string][]string) func(e Edit) float64 {
 }
 
 // LemmaDistance computes the distance based on the word lemma
-func LemmaDistance(e Edit) float64 {
-	return distanceOnField(e, "LemmaDistance", "Lemma")
+func LemmaDistance() func(Edit) float64 {
+	return distanceOnField("Lemma")
 }
 
 // TagDistance computes the distance based on the word tag
-func TagDistance(e Edit) float64 {
-	return distanceOnField(e, "TagDistance", "Tag")
-}
+func TagDistance() func(Edit) float64 { return distanceOnField("Tag") }
 
 // LexicalSimilarity computes the distance based on the word text
-func LexicalSimilarity(e Edit) float64 {
-	return distanceOnField(e, "LexicalSimilarity", "Text")
+func LexicalSimilarity() func(Edit) float64 {
+	return distanceOnField("Text")
 }
 
 // TextualDistance is the max between LE=exical and Lemma similarity
-func TextualDistance(e Edit) float64 {
-	return multiMax(
-		LexicalSimilarity(e),
-		LemmaDistance(e),
+func TextualDistance() func(Edit) float64 {
+	return MaxDistance(
+		LexicalSimilarity(),
+		LemmaDistance(),
 	)
 }
 
@@ -373,21 +359,28 @@ func RemovePunctuation(s string) string {
 	return news
 }
 
-func distanceOnField(e Edit, funcName string, fieldName string) float64 {
-	initCache(funcName)
-	if v, ok := scoreCache[funcName][e]; ok {
-		return v
+func distanceOnField(fieldName string) func(Edit) float64 {
+	scoreCache := map[Edit]float64{}
+	return func(e Edit) float64 {
+		if v, ok := scoreCache[e]; ok {
+			return v
+		}
+
+		switch e.(type) {
+		case *Ins, *Del:
+			return 0
+		}
+
+		from, to := e.getWords()
+		source, target := sumWords(from), sumWords(to)
+		sourceValue := reflect.ValueOf(source).FieldByName(fieldName).String()
+		targetValue := reflect.ValueOf(target).FieldByName(fieldName).String()
+		d := levenshteinDistance(sourceValue, targetValue)
+		dist := 1.0 - d/multiMax(float64(len(sourceValue)), float64(len(targetValue)))
+
+		scoreCache[e] = dist
+		return dist
 	}
-
-	from, to := e.getWords()
-	source, target := sumWords(from), sumWords(to)
-	sourceValue := reflect.ValueOf(source).FieldByName(fieldName).String()
-	targetValue := reflect.ValueOf(target).FieldByName(fieldName).String()
-
-	dist := 1 - levenshteinDistance(sourceValue, targetValue)/multiMax(float64(len(sourceValue)), float64(len(targetValue)))
-
-	scoreCache[funcName][e] = dist
-	return dist
 }
 
 func multiMax(vs ...float64) float64 {
@@ -431,7 +424,13 @@ func levenshteinDistance(s, t string) float64 {
 	return float64(levenshtein.DistanceForStrings(
 		[]rune(s),
 		[]rune(t),
-		levenshtein.DefaultOptions,
+		//levenshtein.DefaultOptions,
+		levenshtein.Options{
+			InsCost: 1,
+			DelCost: 1,
+			SubCost: 1,
+			Matches: levenshtein.IdenticalRunes,
+		},
 	))
 }
 
@@ -550,7 +549,7 @@ func (e *Sub) String() string {
 	for _, w := range e.To {
 		sb.WriteString(fmt.Sprintf(" %s", w.Text))
 	}
-	sb.WriteString(" )")
+	sb.WriteString(")")
 	return sb.String()
 }
 
